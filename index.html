@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Misio</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 22 16" aria-hidden="true">
+        <rect x="0.75" y="3.25" width="10.5" height="7.5" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M11.5 7h6.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M15.4 4.4 18.9 7 15.4 9.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <h1>Misio</h1>
+        <p>Minimalistic version of Visio</p>
+      </div>
+    </div>
+    <div class="tools" role="toolbar" aria-label="Tools">
+      <button id="tool-select" type="button" aria-pressed="true" title="Select (V)">Select</button>
+      <button id="tool-connect" type="button" aria-pressed="false" title="Connector (C)">Connector</button>
+      <span class="sep" aria-hidden="true"></span>
+      <button id="undo" type="button" title="Undo (Ctrl+Z)" disabled>Undo</button>
+      <button id="redo" type="button" title="Redo (Ctrl+Y)" disabled>Redo</button>
+      <span class="sep" aria-hidden="true"></span>
+      <button id="arrange" type="button" title="Arrange shapes and connectors (Ctrl+Shift+L)">Arrange</button>
+      <span class="sep" aria-hidden="true"></span>
+      <button id="zoom-out" type="button" title="Zoom out">−</button>
+      <span id="zoom-label">100%</span>
+      <button id="zoom-in" type="button" title="Zoom in">+</button>
+      <button id="fit" type="button" title="Fit the diagram in the window">Fit</button>
+    </div>
+    <p id="status" class="status" role="status"></p>
+    <div class="file-actions" role="toolbar" aria-label="File">
+      <button id="new-doc" type="button">New</button>
+      <button id="open-doc" type="button">Open</button>
+      <button id="save-doc" type="button">Save</button>
+      <button id="export-svg" type="button">Export SVG</button>
+      <input id="file-input" type="file" accept="application/json,.json" hidden>
+    </div>
+  </header>
+  <div id="confirm" class="confirm" hidden>
+    <span>Clear this diagram?</span>
+    <button id="confirm-yes" type="button">Clear</button>
+    <button id="confirm-no" type="button">Cancel</button>
+  </div>
+  <div class="workspace">
+    <aside class="stencil" aria-label="Shapes">
+      <h2>Shapes</h2>
+      <div id="masters"></div>
+      <p class="hint">Drag a shape onto the page. With Connector, drag from one port to another. Double-click to edit text. Arrange tidies the page.</p>
+    </aside>
+    <div id="canvas-wrap" class="canvas-wrap">
+      <svg id="canvas" aria-label="Diagram canvas"></svg>
+      <textarea id="text-editor" rows="2" hidden spellcheck="false" aria-label="Diagram text"></textarea>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
