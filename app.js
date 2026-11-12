@@ -110,6 +110,18 @@ function labelFor(key) {
   return key;
 }
 
+function ui(key, vars) {
+  const tables = window.MisioUi || {};
+  const table = tables[state.lang] || {};
+  const english = tables.en || {};
+  let text = table[key] || english[key] || key;
+  if (!vars) return text;
+  for (const [name, value] of Object.entries(vars)) {
+    text = text.split("{" + name + "}").join(String(value));
+  }
+  return text;
+}
+
 function snap(value) {
   return Math.round(value / GRID) * GRID;
 }
@@ -664,14 +676,14 @@ function drawDecisionSides(parent, shape) {
     "text-anchor": "start",
     ...caption,
   }, parent);
-  yes.textContent = "Yes";
+  yes.textContent = ui("yes");
   const no = el("text", {
     x: shape.x + shape.w + 8,
     y: shape.y + shape.h / 2 - 8,
     "text-anchor": "start",
     ...caption,
   }, parent);
-  no.textContent = "No";
+  no.textContent = ui("no");
 }
 
 function drawShapeBody(parent, shape) {
@@ -680,10 +692,10 @@ function drawShapeBody(parent, shape) {
   drawLabel(parent, shape);
   if (shape.type === "decision") drawDecisionSides(parent, shape);
   const label = shape.type === "legend"
-    ? "Legend"
+    ? ui("legend")
     : shape.type === "decision"
-      ? `${shape.text || "Decision"}. Yes leaves the bottom, No leaves the right`
-      : (shape.text || shape.type);
+      ? `${shape.text || labelFor("decision")}. ${ui("decision-exits")}`
+      : (shape.text || labelFor(shape.type));
   el("rect", {
     x: shape.x,
     y: shape.y,
@@ -818,7 +830,7 @@ function drawChrome(parent) {
           "stroke-width": 1.5 / state.view.scale,
           "data-handle": name,
           role: "button",
-          "aria-label": `Resize ${shape.text || shape.type} ${name}`,
+          "aria-label": ui("resize", { name: shape.text || labelFor(shape.type), corner: ui("corner-" + name) }),
         }, parent);
       }
     }
@@ -987,7 +999,7 @@ function syncPortButtons() {
       node.addEventListener("dragstart", onPortDragStart);
       wrap.appendChild(node);
     }
-    const label = `${info.shape.text || info.shape.type} ${info.port} port`;
+    const label = ui("port", { name: info.shape.text || labelFor(info.shape.type), side: ui(info.port) });
     node.setAttribute("aria-label", label);
     node.title = label;
     const hot = state.hover && state.hover.kind === "port" && state.hover.id === info.shape.id && state.hover.port === info.port;
@@ -1535,7 +1547,7 @@ function addLegend() {
   const body = state.doc.shapes.filter((shape) => shape.type !== "legend");
   const masters = usedLegendMasters(body);
   if (!masters.length) {
-    setStatus("Nothing to list.");
+    setStatus(ui("nothing-to-list"));
     return;
   }
   const before = serialize();
@@ -1557,7 +1569,7 @@ function addLegend() {
   state.selection = { kind: "shape", id: shape.id };
   commitChange(before);
   render();
-  setStatus(masters.length === 1 ? "Legend lists 1 symbol." : `Legend lists ${masters.length} symbols.`);
+  setStatus(masters.length === 1 ? ui("legend-one") : ui("legend-many", { n: masters.length }));
 }
 
 function arrangeDiagram() {
@@ -1566,7 +1578,7 @@ function arrangeDiagram() {
   const legends = state.doc.shapes.filter((shape) => shape.type === "legend");
   const body = state.doc.shapes.filter((shape) => shape.type !== "legend");
   if (!body.length) {
-    setStatus("Nothing to arrange.");
+    setStatus(ui("nothing-to-arrange"));
     return;
   }
   const before = serialize();
@@ -1576,7 +1588,7 @@ function arrangeDiagram() {
   if (legends[0]) positionLegend(legends[0], body);
   commitChange(before);
   fitView();
-  setStatus("Arranged the diagram.");
+  setStatus(ui("arranged"));
 }
 
 function fitView() {
@@ -1745,11 +1757,11 @@ function openText(text) {
   try {
     data = JSON.parse(String(text).replace(/^\uFEFF/, ""));
   } catch (error) {
-    setStatus("That file is not a Misio diagram.");
+    setStatus(ui("bad-file"));
     return;
   }
   if (!data || !Array.isArray(data.shapes) || !Array.isArray(data.connectors)) {
-    setStatus("That file is not a Misio diagram.");
+    setStatus(ui("bad-file"));
     return;
   }
   closeEditor(false);
@@ -1771,7 +1783,7 @@ function openText(text) {
   state.savedSnapshot = serialize();
   persistDraft();
   hideConfirm();
-  setStatus("Opened diagram.");
+  setStatus(ui("opened"));
   render();
 }
 
@@ -1793,7 +1805,7 @@ function saveDoc() {
   state.savedSnapshot = text;
   persistDraft();
   updateChrome();
-  setStatus("Saved misio.json.");
+  setStatus(ui("saved"));
 }
 
 function exportSvgString() {
@@ -1820,7 +1832,7 @@ function exportSvgString() {
 function exportSvg() {
   if (state.editor) closeEditor(true);
   download("misio.svg", exportSvgString(), "image/svg+xml");
-  setStatus("Exported misio.svg.");
+  setStatus(ui("exported-svg"));
 }
 
 function onPointerDown(event) {
@@ -1973,17 +1985,11 @@ function onPointerMove(event) {
 function applyConnectorEnds(value) {
   if (value !== "auto" && !knownEnds(value)) return;
   state.connectorEnds = value;
-  const names = {
-    auto: "Automatic arrows",
-    none: "No arrow",
-    end: "One arrow",
-    both: "Two arrows",
-  };
   const selected = state.selection && state.selection.kind === "connector"
     ? getConnector(state.selection.id)
     : null;
   if (!selected) {
-    setStatus(`${names[value]} on the next connector.`);
+    setStatus(ui("ends-next-" + value));
     return;
   }
   const before = serialize();
@@ -1991,7 +1997,7 @@ function applyConnectorEnds(value) {
   else selected.ends = value;
   commitChange(before);
   render();
-  setStatus(value === "auto" ? "Connector follows the shapes it joins." : `Connector set to ${names[value].toLowerCase()}.`);
+  setStatus(ui("ends-set-" + value));
 }
 
 function busAt(point) {
@@ -2107,7 +2113,7 @@ function finishGesture() {
       state.doc.shapes.push(shape);
       selectShapes([shape.id]);
       commitChange(gesture.before);
-      setStatus("Bus added. Drop a symbol on it to add a tap.");
+      setStatus(ui("bus-added"));
     }
   }
   nativePortDrag = false;
@@ -2213,7 +2219,8 @@ function symbolGroup(fallback, nodes, nested, key) {
   } else {
     summary.textContent = fallback;
   }
-  summary.title = nested ? "Show or hide these symbols" : "Show or hide this group";
+  summary.dataset.uiTitle = nested ? "group-symbols" : "group-group";
+  summary.title = ui(summary.dataset.uiTitle);
   const list = document.createElement("div");
   list.className = "symbol-group-items";
   for (const node of nodes) list.appendChild(node);
@@ -2274,17 +2281,17 @@ function stampCopies(records, dx, dy) {
 function copySelection() {
   const records = copiedRecords();
   if (!records) {
-    setStatus("Select a shape to copy.");
+    setStatus(ui("copy-none"));
     return;
   }
   state.clipboard = records;
   const count = records.shapes.length;
-  setStatus(count === 1 ? "Copied 1 shape." : `Copied ${count} shapes.`);
+  setStatus(count === 1 ? ui("copied-one") : ui("copied-many", { n: count }));
 }
 
 function pasteClipboard() {
   if (!state.clipboard || !state.clipboard.shapes.length) {
-    setStatus("Nothing to paste.");
+    setStatus(ui("paste-none"));
     return;
   }
   const count = stampCopies(state.clipboard, GRID, GRID);
@@ -2292,23 +2299,23 @@ function pasteClipboard() {
     shape.x += GRID;
     shape.y += GRID;
   }
-  setStatus(count === 1 ? "Pasted 1 shape." : `Pasted ${count} shapes.`);
+  setStatus(count === 1 ? ui("pasted-one") : ui("pasted-many", { n: count }));
 }
 
 function duplicateSelection() {
   const records = copiedRecords();
   if (!records) {
-    setStatus("Select a shape to duplicate.");
+    setStatus(ui("duplicate-none"));
     return;
   }
   const count = stampCopies(records, GRID, GRID);
-  setStatus(count === 1 ? "Duplicated 1 shape." : `Duplicated ${count} shapes.`);
+  setStatus(count === 1 ? ui("duplicated-one") : ui("duplicated-many", { n: count }));
 }
 
 function alignLeft() {
   const shapes = selectedShapeIds().map(getShape).filter(Boolean);
   if (shapes.length < 2) {
-    setStatus("Select several shapes to align.");
+    setStatus(ui("align-none"));
     return;
   }
   const before = serialize();
@@ -2316,13 +2323,13 @@ function alignLeft() {
   for (const shape of shapes) shape.x = left;
   commitChange(before);
   render();
-  setStatus("Aligned left.");
+  setStatus(ui("aligned"));
 }
 
 function spaceEven() {
   const shapes = selectedShapeIds().map(getShape).filter(Boolean);
   if (shapes.length < 2) {
-    setStatus("Select several shapes to space.");
+    setStatus(ui("space-none"));
     return;
   }
   const spanX = Math.max(...shapes.map((shape) => shape.x + shape.w / 2)) - Math.min(...shapes.map((shape) => shape.x + shape.w / 2));
@@ -2342,11 +2349,11 @@ function spaceEven() {
     else shape.y = snap(at - shape.h / 2);
   });
   if (!commitChange(before)) {
-    setStatus("Already spaced.");
+    setStatus(ui("already-spaced"));
     return;
   }
   render();
-  setStatus(horizontal ? "Spaced across." : "Spaced down.");
+  setStatus(horizontal ? ui("spaced-across") : ui("spaced-down"));
 }
 
 function persistDraft() {
@@ -2385,7 +2392,7 @@ function restoreDraft() {
   if (typeof data.saved === "string") state.savedSnapshot = data.saved;
   persistDraft();
   updateChrome();
-  setStatus("Restored the last drawing.");
+  setStatus(ui("restored"));
 }
 
 function escapeHtml(value) {
@@ -2401,7 +2408,7 @@ function diagramTitle() {
 function exportPdf() {
   if (state.editor) closeEditor(true);
   if (!state.doc.shapes.length) {
-    setStatus("Nothing to export.");
+    setStatus(ui("export-none"));
     return;
   }
   let frame = document.getElementById("print-frame");
@@ -2423,14 +2430,14 @@ function exportPdf() {
     svg { width: 100%; height: auto; max-height: 250mm; }
   </style></head><body><h1>${title}</h1>${svg}<` + `script>window.addEventListener("load", function () { window.print(); });<` + `/script></body></html>`);
   doc.close();
-  setStatus("Choose Save as PDF in the print dialog.");
+  setStatus(ui("pdf-ready"));
   window.setTimeout(() => {
     try {
       if (window.Misio && window.Misio.skipPrint) return;
       frame.contentWindow.focus();
       frame.contentWindow.print();
     } catch (error) {
-      setStatus("The print dialog could not open.");
+      setStatus(ui("pdf-failed"));
     }
   }, 50);
 }
@@ -2483,7 +2490,8 @@ function buildMasters() {
   if (!mastersEl.children.length) {
     const empty = document.createElement("p");
     empty.className = "hint";
-    empty.textContent = "No matching shapes.";
+    empty.dataset.ui = "no-match";
+    empty.textContent = ui("no-match");
     mastersEl.appendChild(empty);
   }
 }
@@ -2621,7 +2629,7 @@ fileInput.addEventListener("change", () => {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => openText(String(reader.result || ""));
-  reader.onerror = () => setStatus("That file could not be read.");
+  reader.onerror = () => setStatus(ui("file-unreadable"));
   reader.readAsText(file);
 });
 
@@ -2719,6 +2727,18 @@ function applyLanguage(lang) {
   document.documentElement.lang = next;
   const select = document.getElementById("lang");
   if (select && select.value !== next) select.value = next;
+  for (const node of document.querySelectorAll("[data-ui]")) {
+    node.textContent = ui(node.dataset.ui);
+  }
+  for (const node of document.querySelectorAll("[data-ui-title]")) {
+    node.title = ui(node.dataset.uiTitle);
+  }
+  for (const node of document.querySelectorAll("[data-ui-label]")) {
+    node.setAttribute("aria-label", ui(node.dataset.uiLabel));
+  }
+  for (const node of document.querySelectorAll("[data-ui-placeholder]")) {
+    node.setAttribute("placeholder", ui(node.dataset.uiPlaceholder));
+  }
   for (const node of document.querySelectorAll("[data-lang]")) {
     node.textContent = labelFor(node.dataset.lang);
   }
@@ -2735,12 +2755,10 @@ function applyLanguage(lang) {
 
 buildMasters();
 const langSelect = document.getElementById("lang");
-langSelect.value = state.lang;
-document.documentElement.lang = state.lang;
 langSelect.addEventListener("change", () => applyLanguage(langSelect.value));
 state.savedSnapshot = serialize();
-render();
 restoreDraft();
+applyLanguage(state.lang);
 
 window.Misio = {
   getDoc() {

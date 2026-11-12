@@ -116,6 +116,13 @@ button[aria-pressed="true"] {
   gap: 6px;
 }
 
+.tools button,
+.file-actions button,
+#lang,
+#connector-ends {
+  white-space: nowrap;
+}
+
 .sep {
   width: 1px;
   height: 18px;

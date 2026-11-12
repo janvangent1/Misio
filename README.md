@@ -68,7 +68,7 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
 | Fit | fit the whole diagram in the window |
 | Arrange | lay the flowchart out from top to bottom (Ctrl+Shift+L) |
 | Legend | add a key of every symbol used on the page, in the bottom right corner. Click it again to refresh the key. |
-| Language | English, Nederlands, or Français. Shape names and the legend follow the choice. English is the default. |
+| Language | English, Nederlands, or Français. Buttons, messages, shape names, and the legend follow the choice. Text you type on a shape stays as you wrote it. English is the default. |
 | Undo / Redo | Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z |
 | New / Open / Save | a Misio JSON file. Save is also Ctrl+S. |
 | Export SVG | download the drawing as misio.svg |

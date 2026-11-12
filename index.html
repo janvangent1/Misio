@@ -18,42 +18,42 @@
       </svg>
       <div>
         <h1>Misio</h1>
-        <p>Minimalistic version of Visio</p>
+        <p data-ui="tagline">Minimalistic version of Visio</p>
       </div>
     </div>
-    <div class="tools" role="toolbar" aria-label="Tools">
-      <button id="tool-select" type="button" aria-pressed="true" title="Select (V)">Select</button>
-      <button id="tool-connect" type="button" aria-pressed="false" title="Connector (C)">Connector</button>
-      <select id="connector-ends" aria-label="Connector ends" title="Arrow on new connectors. With a connector selected, this changes that connector.">
-        <option value="auto">Automatic</option>
-        <option value="none">No arrow</option>
-        <option value="end">One arrow</option>
-        <option value="both">Two arrows</option>
+    <div class="tools" role="toolbar" data-ui-label="tools" aria-label="Tools">
+      <button id="tool-select" type="button" aria-pressed="true" data-ui="select" data-ui-title="select-title" title="Select (V)">Select</button>
+      <button id="tool-connect" type="button" aria-pressed="false" data-ui="connector" data-ui-title="connector-title" title="Connector (C)">Connector</button>
+      <select id="connector-ends" data-ui-label="ends-label" data-ui-title="ends-title" aria-label="Connector ends" title="Arrow on new connectors. With a connector selected, this changes that connector.">
+        <option value="auto" data-ui="ends-auto">Automatic</option>
+        <option value="none" data-ui="ends-none">No arrow</option>
+        <option value="end" data-ui="ends-end">One arrow</option>
+        <option value="both" data-ui="ends-both">Two arrows</option>
       </select>
-      <button id="tool-bus" type="button" aria-pressed="false" title="Bus (B). Drag a bar, then drop a symbol on it.">Bus</button>
+      <button id="tool-bus" type="button" aria-pressed="false" data-ui="bus-tool" data-ui-title="bus-title" title="Bus (B). Drag a bar, then drop a symbol on it.">Bus</button>
       <span class="sep" aria-hidden="true"></span>
-      <button id="undo" type="button" title="Undo (Ctrl+Z)" disabled>Undo</button>
-      <button id="redo" type="button" title="Redo (Ctrl+Y)" disabled>Redo</button>
+      <button id="undo" type="button" data-ui="undo" data-ui-title="undo-title" title="Undo (Ctrl+Z)" disabled>Undo</button>
+      <button id="redo" type="button" data-ui="redo" data-ui-title="redo-title" title="Redo (Ctrl+Y)" disabled>Redo</button>
       <span class="sep" aria-hidden="true"></span>
-      <button id="arrange" type="button" title="Arrange shapes and connectors (Ctrl+Shift+L)">Arrange</button>
-      <button id="legend" type="button" title="Add a legend of the symbols on this page">Legend</button>
-      <button id="align-left" type="button" title="Align the left edges of the selected shapes">Align left</button>
-      <button id="space-even" type="button" title="Space the selected shapes evenly">Space</button>
+      <button id="arrange" type="button" data-ui="arrange" data-ui-title="arrange-title" title="Arrange shapes and connectors (Ctrl+Shift+L)">Arrange</button>
+      <button id="legend" type="button" data-ui="legend" data-ui-title="legend-title" title="Add a legend of the symbols on this page">Legend</button>
+      <button id="align-left" type="button" data-ui="align-left" data-ui-title="align-title" title="Align the left edges of the selected shapes">Align left</button>
+      <button id="space-even" type="button" data-ui="space" data-ui-title="space-title" title="Space the selected shapes evenly">Space</button>
       <span class="sep" aria-hidden="true"></span>
-      <button id="zoom-out" type="button" title="Zoom out">−</button>
+      <button id="zoom-out" type="button" data-ui-title="zoom-out" title="Zoom out">−</button>
       <span id="zoom-label">100%</span>
-      <button id="zoom-in" type="button" title="Zoom in">+</button>
-      <button id="fit" type="button" title="Fit the diagram in the window">Fit</button>
+      <button id="zoom-in" type="button" data-ui-title="zoom-in" title="Zoom in">+</button>
+      <button id="fit" type="button" data-ui="fit" data-ui-title="fit-title" title="Fit the diagram in the window">Fit</button>
     </div>
     <p id="status" class="status" role="status"></p>
-    <div class="file-actions" role="toolbar" aria-label="File">
-      <button id="new-doc" type="button">New</button>
-      <button id="open-doc" type="button">Open</button>
-      <button id="save-doc" type="button">Save</button>
-      <button id="export-svg" type="button">Export SVG</button>
-      <button id="export-pdf" type="button" title="Open a one-page sheet and print it to PDF">Export PDF</button>
+    <div class="file-actions" role="toolbar" data-ui-label="file" aria-label="File">
+      <button id="new-doc" type="button" data-ui="new">New</button>
+      <button id="open-doc" type="button" data-ui="open">Open</button>
+      <button id="save-doc" type="button" data-ui="save">Save</button>
+      <button id="export-svg" type="button" data-ui="export-svg">Export SVG</button>
+      <button id="export-pdf" type="button" data-ui="export-pdf" data-ui-title="export-pdf-title" title="Open a one-page sheet and print it to PDF">Export PDF</button>
       <span class="sep" aria-hidden="true"></span>
-      <select id="lang" aria-label="Language">
+      <select id="lang" data-ui-label="language" aria-label="Language">
         <option value="en">English</option>
         <option value="nl">Nederlands</option>
         <option value="fr">Français</option>
@@ -62,20 +62,20 @@
     </div>
   </header>
   <div id="confirm" class="confirm" hidden>
-    <span>Clear this diagram?</span>
-    <button id="confirm-yes" type="button">Clear</button>
-    <button id="confirm-no" type="button">Cancel</button>
+    <span data-ui="clear-ask">Clear this diagram?</span>
+    <button id="confirm-yes" type="button" data-ui="clear">Clear</button>
+    <button id="confirm-no" type="button" data-ui="cancel">Cancel</button>
   </div>
   <div class="workspace">
-    <aside class="stencil" aria-label="Shapes">
-      <h2>Shapes</h2>
-      <input id="shape-search" type="search" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
+    <aside class="stencil" data-ui-label="shapes-label" aria-label="Shapes">
+      <h2 data-ui="shapes">Shapes</h2>
+      <input id="shape-search" type="search" data-ui-placeholder="search-placeholder" data-ui-label="search-label" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
       <div id="masters"></div>
-      <p class="hint">Drag a shape onto the page. Shift-click selects several. Ctrl+C, Ctrl+V, and Ctrl+D copy them. Drop a symbol on a bus to add a tap. Double-click to edit text.</p>
+      <p class="hint" data-ui="hint">Drag a shape onto the page. Shift-click selects several. Ctrl+C, Ctrl+V, and Ctrl+D copy them. Drop a symbol on a bus to add a tap. Double-click to edit text.</p>
     </aside>
     <div id="canvas-wrap" class="canvas-wrap">
-      <svg id="canvas" aria-label="Diagram canvas"></svg>
-      <textarea id="text-editor" rows="2" hidden spellcheck="false" aria-label="Diagram text"></textarea>
+      <svg id="canvas" data-ui-label="canvas" aria-label="Diagram canvas"></svg>
+      <textarea id="text-editor" rows="2" hidden spellcheck="false" data-ui-label="diagram-text" aria-label="Diagram text"></textarea>
     </div>
   </div>
   <script src="lang.js"></script>
