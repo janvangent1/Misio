@@ -6,6 +6,7 @@ everyday drawing work of Visio: shapes, connectors, labels, and a tidy page.
 It does not open .vsdx files, and it does not need Visio installed.
 
 The picture of the editor is screenshot.png. GitHub shows it in README.md.
+A reload brings back the drawing that was open.
 
 
 Run
@@ -46,7 +47,18 @@ Draw
 Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
 
     Select (V)          move a shape, or resize it from a corner
-    Connector (C)       drag from a port (top, right, bottom, left) to a port
+    Connector (C)       drag from a port (top, right, bottom, left) to a port.
+                        The menu beside it sets no arrow, one arrow, or
+                        two arrows. Automatic keeps one arrow on a
+                        flowchart and none on an AREI wire. With a
+                        connector selected, the menu changes that connector.
+    Bus (B)             drag a horizontal bar. Drop a symbol on the bar
+                        to add a tap and a wire.
+    Shift-click         add or remove a shape from the selection
+    Align left          line up the left edges of the selected shapes
+    Space               space the selected shapes evenly
+    Ctrl+C, Ctrl+V      copy and paste the selection. Ctrl+D duplicates it.
+    Search              the box above the shape list. Try rcd or stopcontact.
     Double-click        edit the text on a shape or on a connector
     Delete              remove the selection
     Arrow keys          nudge the selected shape by one grid step
@@ -64,6 +76,8 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
     Undo / Redo         Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z
     New / Open / Save   a Misio JSON file. Save is also Ctrl+S.
     Export SVG          download the drawing as misio.svg
+    Export PDF          open one sheet, with the title and the drawing,
+                        and print it. Choose Save as PDF.
 
 Connectors stay orthogonal and stay glued to their ports when a shape moves.
 On a decision, Yes leaves the bottom and No leaves the right. Arrange keeps
@@ -115,4 +129,4 @@ A saved diagram is JSON:
     title: "Misio"
     version: 1
     shapes: id, type, x, y, w, h, text
-    connectors: id, fromId, fromPort, toId, toPort, text
+    connectors: id, fromId, fromPort, toId, toPort, text, ends

@@ -20,6 +20,7 @@ window.MisioLang = {
     "group:arei-sources": "Bronnen",
     "group:arei-domotica": "Domotica",
 
+    bus: "Rail",
     terminator: "Start / einde",
     process: "Proces",
     decision: "Beslissing",
@@ -175,6 +176,7 @@ window.MisioLang = {
     "group:arei-sources": "Sources",
     "group:arei-domotica": "Domotique",
 
+    bus: "Barre",
     terminator: "Début / fin",
     process: "Processus",
     decision: "Décision",

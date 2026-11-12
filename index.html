@@ -24,17 +24,21 @@
     <div class="tools" role="toolbar" aria-label="Tools">
       <button id="tool-select" type="button" aria-pressed="true" title="Select (V)">Select</button>
       <button id="tool-connect" type="button" aria-pressed="false" title="Connector (C)">Connector</button>
+      <select id="connector-ends" aria-label="Connector ends" title="Arrow on new connectors. With a connector selected, this changes that connector.">
+        <option value="auto">Automatic</option>
+        <option value="none">No arrow</option>
+        <option value="end">One arrow</option>
+        <option value="both">Two arrows</option>
+      </select>
+      <button id="tool-bus" type="button" aria-pressed="false" title="Bus (B). Drag a bar, then drop a symbol on it.">Bus</button>
       <span class="sep" aria-hidden="true"></span>
       <button id="undo" type="button" title="Undo (Ctrl+Z)" disabled>Undo</button>
       <button id="redo" type="button" title="Redo (Ctrl+Y)" disabled>Redo</button>
       <span class="sep" aria-hidden="true"></span>
       <button id="arrange" type="button" title="Arrange shapes and connectors (Ctrl+Shift+L)">Arrange</button>
       <button id="legend" type="button" title="Add a legend of the symbols on this page">Legend</button>
-      <select id="lang" aria-label="Language">
-        <option value="en">English</option>
-        <option value="nl">Nederlands</option>
-        <option value="fr">Français</option>
-      </select>
+      <button id="align-left" type="button" title="Align the left edges of the selected shapes">Align left</button>
+      <button id="space-even" type="button" title="Space the selected shapes evenly">Space</button>
       <span class="sep" aria-hidden="true"></span>
       <button id="zoom-out" type="button" title="Zoom out">−</button>
       <span id="zoom-label">100%</span>
@@ -47,6 +51,13 @@
       <button id="open-doc" type="button">Open</button>
       <button id="save-doc" type="button">Save</button>
       <button id="export-svg" type="button">Export SVG</button>
+      <button id="export-pdf" type="button" title="Open a one-page sheet and print it to PDF">Export PDF</button>
+      <span class="sep" aria-hidden="true"></span>
+      <select id="lang" aria-label="Language">
+        <option value="en">English</option>
+        <option value="nl">Nederlands</option>
+        <option value="fr">Français</option>
+      </select>
       <input id="file-input" type="file" accept="application/json,.json" hidden>
     </div>
   </header>
@@ -58,8 +69,9 @@
   <div class="workspace">
     <aside class="stencil" aria-label="Shapes">
       <h2>Shapes</h2>
+      <input id="shape-search" type="search" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
       <div id="masters"></div>
-      <p class="hint">Drag a shape onto the page. With Connector, drag from one port to another. Double-click to edit text. Arrange tidies the page. AREI opens into its own sections. Network symbols are in the folded Network group.</p>
+      <p class="hint">Drag a shape onto the page. Shift-click selects several. Ctrl+C, Ctrl+V, and Ctrl+D copy them. Drop a symbol on a bus to add a tap. Double-click to edit text.</p>
     </aside>
     <div id="canvas-wrap" class="canvas-wrap">
       <svg id="canvas" aria-label="Diagram canvas"></svg>

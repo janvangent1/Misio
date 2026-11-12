@@ -25,6 +25,7 @@ const FLOW_MASTERS = [
   { type: "offpage", name: "Off-page", w: 140, h: 64, text: "Page" },
   { type: "onpage", name: "On-page", w: 72, h: 72, text: "1" },
   { type: "text", name: "Text", w: 140, h: 48, text: "Text", category: "standard" },
+  { type: "bus", name: "Bus", w: 360, h: 40, text: "", category: "arei-boards" },
 ];
 const MASTERS = FLOW_MASTERS.concat(window.MisioArei.masters, window.MisioNetwork.masters);
 const TYPES = new Set(MASTERS.map((master) => master.type));
@@ -48,6 +49,9 @@ const redoButton = document.getElementById("redo");
 const saveButton = document.getElementById("save-doc");
 const selectButton = document.getElementById("tool-select");
 const connectButton = document.getElementById("tool-connect");
+const busButton = document.getElementById("tool-bus");
+const endsSelect = document.getElementById("connector-ends");
+const shapeSearch = document.getElementById("shape-search");
 
 const measureCtx = document.createElement("canvas").getContext("2d");
 
@@ -65,6 +69,8 @@ const state = {
   editor: null,
   spaceDown: false,
   lang: storedLanguage(),
+  connectorEnds: "auto",
+  clipboard: null,
 };
 
 let statusTimer = 0;
@@ -128,7 +134,7 @@ function shapeRecord(shape) {
 }
 
 function connectorRecord(connector) {
-  return {
+  const record = {
     id: String(connector.id),
     fromId: String(connector.fromId),
     fromPort: connector.fromPort,
@@ -136,6 +142,8 @@ function connectorRecord(connector) {
     toPort: connector.toPort,
     text: String(connector.text ?? ""),
   };
+  if (knownEnds(connector.ends)) record.ends = connector.ends;
+  return record;
 }
 
 function serialize(doc = state.doc) {
@@ -154,6 +162,34 @@ function getShape(id) {
 
 function getConnector(id) {
   return state.doc.connectors.find((connector) => connector.id === id) || null;
+}
+
+function selectedShapeIds() {
+  if (!state.selection || state.selection.kind !== "shape") return [];
+  const ids = Array.isArray(state.selection.ids) && state.selection.ids.length
+    ? state.selection.ids
+    : (state.selection.id ? [state.selection.id] : []);
+  const unique = [];
+  for (const id of ids) {
+    if (getShape(id) && !unique.includes(id)) unique.push(id);
+  }
+  return unique;
+}
+
+function selectShapes(ids) {
+  const unique = [];
+  for (const id of ids) {
+    if (getShape(id) && !unique.includes(id)) unique.push(id);
+  }
+  state.selection = unique.length
+    ? { kind: "shape", id: unique[unique.length - 1], ids: unique }
+    : null;
+}
+
+function shapeIsSelected(shape) {
+  if (!state.selection || state.selection.kind !== "shape") return false;
+  if (Array.isArray(state.selection.ids) && state.selection.ids.length) return state.selection.ids.includes(shape.id);
+  return state.selection.id === shape.id;
 }
 
 function bumpId(id) {
@@ -177,18 +213,21 @@ function commitChange(before) {
   state.past.push(before);
   if (state.past.length > 100) state.past.shift();
   state.future = [];
+  persistDraft();
   return true;
 }
 
 function applySnapshot(snapshot) {
   const data = JSON.parse(snapshot);
   state.doc = { shapes: data.shapes.map(shapeRecord), connectors: data.connectors.map(connectorRecord) };
-  if (state.selection) {
-    const alive = state.selection.kind === "shape"
-      ? getShape(state.selection.id)
-      : getConnector(state.selection.id);
-    if (!alive) state.selection = null;
+  if (!state.selection) return;
+  if (state.selection.kind === "shape") {
+    const ids = selectedShapeIds();
+    if (!ids.length) state.selection = null;
+    else selectShapes(ids);
+    return;
   }
+  if (!getConnector(state.selection.id)) state.selection = null;
 }
 
 function undo() {
@@ -404,7 +443,7 @@ function drawLabel(parent, shape) {
 let plainDraw = false;
 
 function shapePaint(shape) {
-  const selected = !plainDraw && state.selection && state.selection.kind === "shape" && state.selection.id === shape.id;
+  const selected = !plainDraw && shapeIsSelected(shape);
   return {
     fill: "#fffcf7",
     stroke: selected ? "#184e86" : "#1c1915",
@@ -500,6 +539,19 @@ function drawOutline(parent, shape, paint) {
   };
   if (shape.type === "legend") {
     drawLegend(parent, shape, paint);
+    return;
+  }
+  if (shape.type === "bus") {
+    el("line", {
+      x1: x,
+      y1: cy,
+      x2: right,
+      y2: cy,
+      fill: "none",
+      stroke: paint.stroke,
+      "stroke-width": Math.max(paint.sw, 2.5),
+      "stroke-linecap": "round",
+    }, parent);
     return;
   }
   const pack = symbolPack(shape.type);
@@ -650,6 +702,50 @@ function wirePair(connector) {
   return Boolean(from && to && symbolPack(from.type) && symbolPack(to.type));
 }
 
+function knownEnds(value) {
+  return value === "none" || value === "end" || value === "both";
+}
+
+function connectorEnds(connector) {
+  if (knownEnds(connector.ends)) return connector.ends;
+  return wirePair(connector) ? "none" : "end";
+}
+
+function shownConnectorEnds() {
+  const selected = state.selection && state.selection.kind === "connector"
+    ? getConnector(state.selection.id)
+    : null;
+  if (selected) return knownEnds(selected.ends) ? selected.ends : "auto";
+  return state.connectorEnds;
+}
+
+function arrowMarkerAttrs(ends, ink) {
+  if (ends === "none") return {};
+  const id = ink ? "arrow-ink" : "arrow";
+  const attrs = {};
+  if (ends === "end" || ends === "both") attrs["marker-end"] = `url(#${id})`;
+  if (ends === "both") attrs["marker-start"] = `url(#${id}-start)`;
+  return attrs;
+}
+
+function addArrowMarkers(defs) {
+  for (const [id, fill] of [["arrow", "#184e86"], ["arrow-ink", "#1c1915"]]) {
+    for (const [suffix, orient] of [["", "auto"], ["-start", "auto-start-reverse"]]) {
+      const marker = el("marker", {
+        id: id + suffix,
+        viewBox: "0 0 12 10",
+        refX: "11",
+        refY: "5",
+        markerWidth: "12",
+        markerHeight: "10",
+        orient,
+        markerUnits: "userSpaceOnUse",
+      }, defs);
+      el("path", { d: "M0 0 L12 5 L0 10 Z", fill }, marker);
+    }
+  }
+}
+
 function drawConnector(parent, connector, options = {}) {
   const points = connectorPoints(connector);
   if (!points) return;
@@ -663,8 +759,8 @@ function drawConnector(parent, connector, options = {}) {
     "stroke-linejoin": "round",
     "stroke-linecap": "round",
     "stroke-dasharray": options.preview ? "5 4" : "0",
-    "marker-end": options.preview || wiring ? null : "url(#arrow)",
     "data-connector-id": connector.id,
+    ...arrowMarkerAttrs(connectorEnds(connector), Boolean(wiring)),
   }, parent);
   path.dataset.connectorId = connector.id;
   const label = String(connector.text || "").trim();
@@ -696,12 +792,12 @@ function portsVisible(shape) {
   if (shape.type === "legend") return false;
   if (state.tool === "connect") return true;
   if (state.gesture && state.gesture.type === "connect") return true;
-  if (state.selection && state.selection.kind === "shape" && state.selection.id === shape.id) return true;
+  if (state.selection && state.selection.kind === "shape" && selectedShapeIds().length === 1 && state.selection.id === shape.id) return true;
   return state.hover && state.hover.kind === "shape" && state.hover.id === shape.id;
 }
 
 function drawChrome(parent) {
-  if (state.tool === "select" && state.selection && state.selection.kind === "shape") {
+  if (state.tool === "select" && state.selection && state.selection.kind === "shape" && selectedShapeIds().length === 1) {
     const shape = getShape(state.selection.id);
     if (shape && shape.type !== "legend") {
       const corners = [
@@ -770,9 +866,25 @@ function drawDiagram(parent, interactive) {
 
 function drawPreview(parent) {
   const gesture = state.gesture;
-  if (!gesture || gesture.type !== "connect") return;
+  if (!gesture) return;
+  if (gesture.type === "bus" && gesture.pointer) {
+    const x1 = Math.min(gesture.sx, gesture.pointer.x);
+    const x2 = Math.max(gesture.sx, gesture.pointer.x);
+    const y = gesture.sy;
+    el("line", {
+      x1, y1: y, x2, y2: y,
+      fill: "none",
+      stroke: "#184e86",
+      "stroke-width": 2.5,
+      "stroke-linecap": "round",
+      "stroke-dasharray": "6 4",
+    }, parent);
+    return;
+  }
+  if (gesture.type !== "connect") return;
   const shape = getShape(gesture.fromId);
   if (!shape) return;
+  const previewEnds = state.connectorEnds === "auto" ? "end" : state.connectorEnds;
   el("path", {
     d: toPath(previewPoints(shape, gesture.fromPort, gesture.pointer)),
     fill: "none",
@@ -781,6 +893,7 @@ function drawPreview(parent) {
     "stroke-linejoin": "round",
     "stroke-linecap": "round",
     "stroke-dasharray": "5 4",
+    ...arrowMarkerAttrs(previewEnds, false),
   }, parent);
 }
 
@@ -809,17 +922,7 @@ function render() {
     stroke: "#ece7de",
     "stroke-width": 1 / state.view.scale,
   }, pattern);
-  const marker = el("marker", {
-    id: "arrow",
-    viewBox: "0 0 12 10",
-    refX: "11",
-    refY: "5",
-    markerWidth: "12",
-    markerHeight: "10",
-    orient: "auto",
-    markerUnits: "userSpaceOnUse",
-  }, defs);
-  el("path", { d: "M0 0 L12 5 L0 10 Z", fill: "#184e86" }, marker);
+  addArrowMarkers(defs);
 
   const viewport = el("g", {
     id: "viewport",
@@ -898,9 +1001,12 @@ function syncPortButtons() {
 function updateChrome() {
   selectButton.setAttribute("aria-pressed", state.tool === "select" ? "true" : "false");
   connectButton.setAttribute("aria-pressed", state.tool === "connect" ? "true" : "false");
+  busButton.setAttribute("aria-pressed", state.tool === "bus" ? "true" : "false");
   undoButton.disabled = state.past.length === 0;
   redoButton.disabled = state.future.length === 0;
   zoomLabel.textContent = `${Math.round(state.view.scale * 100)}%`;
+  const shownEnds = shownConnectorEnds();
+  if (endsSelect.value !== shownEnds) endsSelect.value = shownEnds;
   saveButton.classList.toggle("is-dirty", serialize() !== state.savedSnapshot);
   wrap.classList.toggle("is-connect", state.tool === "connect" && !(state.gesture && state.gesture.type === "pan"));
   wrap.classList.toggle("is-pan", Boolean(state.gesture && state.gesture.type === "pan"));
@@ -949,6 +1055,7 @@ function hitShapeBody(shape, point) {
 
 function hitHandle(point) {
   if (state.tool !== "select" || !state.selection || state.selection.kind !== "shape") return null;
+  if (selectedShapeIds().length !== 1) return null;
   const shape = getShape(state.selection.id);
   if (!shape) return null;
   const reach = 8 / state.view.scale;
@@ -1031,7 +1138,7 @@ function cursorFor(point) {
   if (handle === "ne" || handle === "sw") return "nesw-resize";
   if (hitPort(point)) return "crosshair";
   if (state.tool === "select" && hitShape(point)) return "move";
-  if (state.tool === "connect") return "crosshair";
+  if (state.tool === "connect" || state.tool === "bus") return "crosshair";
   return "default";
 }
 
@@ -1052,7 +1159,8 @@ function addShape(master, world) {
     text: master.text,
   };
   state.doc.shapes.push(shape);
-  state.selection = { kind: "shape", id: shape.id };
+  wireDroppedShape(shape, world);
+  selectShapes([shape.id]);
   commitChange(before);
   hideConfirm();
   render();
@@ -1069,6 +1177,10 @@ function resizeShape(shape, corner, point) {
   if (corner.includes("s")) edgeY = snap(point.y);
   if (corner.includes("w")) x = snap(point.x);
   if (corner.includes("n")) y = snap(point.y);
+  if (shape.type === "bus") {
+    y = shape.origin.y;
+    edgeY = bottom;
+  }
   if (edgeX - x < MIN_SIZE) {
     if (corner.includes("w")) x = edgeX - MIN_SIZE;
     else edgeX = x + MIN_SIZE;
@@ -1088,9 +1200,9 @@ function deleteSelection() {
   closeEditor(true);
   const before = serialize();
   if (state.selection.kind === "shape") {
-    const id = state.selection.id;
-    state.doc.shapes = state.doc.shapes.filter((shape) => shape.id !== id);
-    state.doc.connectors = state.doc.connectors.filter((connector) => connector.fromId !== id && connector.toId !== id);
+    const ids = new Set(selectedShapeIds());
+    state.doc.shapes = state.doc.shapes.filter((shape) => !ids.has(shape.id));
+    state.doc.connectors = state.doc.connectors.filter((connector) => !ids.has(connector.fromId) && !ids.has(connector.toId));
   } else {
     const id = state.selection.id;
     state.doc.connectors = state.doc.connectors.filter((connector) => connector.id !== id);
@@ -1488,12 +1600,14 @@ function fitView() {
 }
 
 function nudge(dx, dy) {
-  if (!state.selection || state.selection.kind !== "shape") return;
-  const shape = getShape(state.selection.id);
-  if (!shape) return;
+  const ids = selectedShapeIds();
+  if (!ids.length) return;
   const before = serialize();
-  shape.x = snap(shape.x + dx);
-  shape.y = snap(shape.y + dy);
+  for (const id of ids) {
+    const shape = getShape(id);
+    shape.x = snap(shape.x + dx);
+    shape.y = snap(shape.y + dy);
+  }
   commitChange(before);
   render();
 }
@@ -1618,6 +1732,7 @@ function sanitizeConnector(raw, ids) {
     toPort: raw.toPort,
     text: String(raw.text ?? "").slice(0, 1000),
   };
+  if (knownEnds(raw.ends)) connector.ends = raw.ends;
   if (!ids.has(connector.fromId) || !ids.has(connector.toId)) return null;
   if (connector.fromId === connector.toId) return null;
   if (!PORTS.includes(connector.fromPort) || !PORTS.includes(connector.toPort)) return null;
@@ -1654,6 +1769,7 @@ function openText(text) {
   state.selection = null;
   commitChange(before);
   state.savedSnapshot = serialize();
+  persistDraft();
   hideConfirm();
   setStatus("Opened diagram.");
   render();
@@ -1675,6 +1791,7 @@ function saveDoc() {
   const text = serialize();
   download("misio.json", text, "application/json");
   state.savedSnapshot = text;
+  persistDraft();
   updateChrome();
   setStatus("Saved misio.json.");
 }
@@ -1691,17 +1808,7 @@ function exportSvgString() {
   title.textContent = "Misio";
   el("rect", { x: bounds.x, y: bounds.y, width: bounds.w, height: bounds.h, fill: "#fffcf7" }, out);
   plainDraw = true;
-  const marker = el("marker", {
-    id: "arrow",
-    viewBox: "0 0 12 10",
-    refX: "11",
-    refY: "5",
-    markerWidth: "12",
-    markerHeight: "10",
-    orient: "auto",
-    markerUnits: "userSpaceOnUse",
-  }, el("defs", {}, out));
-  el("path", { d: "M0 0 L12 5 L0 10 Z", fill: "#184e86" }, marker);
+  addArrowMarkers(el("defs", {}, out));
   try {
     drawDiagram(out, false);
   } finally {
@@ -1728,6 +1835,12 @@ function onPointerDown(event) {
   if (event.button !== 0) return;
   if (state.editor) closeEditor(true);
   const world = clientToWorld(event.clientX, event.clientY);
+  if (state.tool === "bus") {
+    state.gesture = { type: "bus", sx: snap(world.x), sy: snap(world.y), pointer: world, before: serialize() };
+    wrap.setPointerCapture(event.pointerId);
+    render();
+    return;
+  }
   const handle = hitHandle(world);
   if (handle) {
     const shape = getShape(state.selection.id);
@@ -1755,12 +1868,29 @@ function onPointerDown(event) {
   if (state.tool === "select") {
     const shape = hitShape(world);
     if (shape) {
-      state.selection = { kind: "shape", id: shape.id };
+      let ids = selectedShapeIds();
+      if (event.shiftKey) {
+        ids = ids.includes(shape.id) ? ids.filter((id) => id !== shape.id) : ids.concat(shape.id);
+        selectShapes(ids);
+        if (!ids.includes(shape.id)) {
+          state.gesture = null;
+          render();
+          return;
+        }
+      } else if (!ids.includes(shape.id)) {
+        ids = [shape.id];
+        selectShapes(ids);
+      }
+      const origins = {};
+      for (const id of selectedShapeIds()) {
+        const item = getShape(id);
+        origins[id] = { x: item.x, y: item.y };
+      }
       state.gesture = {
         type: "move",
         id: shape.id,
-        dx: world.x - shape.x,
-        dy: world.y - shape.y,
+        origins,
+        start: { x: world.x, y: world.y },
         before: serialize(),
       };
       wrap.setPointerCapture(event.pointerId);
@@ -1808,10 +1938,14 @@ function onPointerMove(event) {
     return;
   }
   if (gesture.type === "move") {
-    const shape = getShape(gesture.id);
-    if (!shape) return;
-    shape.x = snap(world.x - gesture.dx);
-    shape.y = snap(world.y - gesture.dy);
+    const dx = snap(world.x - gesture.start.x);
+    const dy = snap(world.y - gesture.start.y);
+    for (const [id, origin] of Object.entries(gesture.origins)) {
+      const shape = getShape(id);
+      if (!shape) continue;
+      shape.x = origin.x + dx;
+      shape.y = origin.y + dy;
+    }
     render();
     return;
   }
@@ -1828,7 +1962,121 @@ function onPointerMove(event) {
     const port = portTarget(world, gesture.fromId);
     state.hover = port ? { kind: "port", id: port.id, port: port.port } : null;
     render();
+    return;
   }
+  if (gesture.type === "bus") {
+    gesture.pointer = world;
+    render();
+  }
+}
+
+function applyConnectorEnds(value) {
+  if (value !== "auto" && !knownEnds(value)) return;
+  state.connectorEnds = value;
+  const names = {
+    auto: "Automatic arrows",
+    none: "No arrow",
+    end: "One arrow",
+    both: "Two arrows",
+  };
+  const selected = state.selection && state.selection.kind === "connector"
+    ? getConnector(state.selection.id)
+    : null;
+  if (!selected) {
+    setStatus(`${names[value]} on the next connector.`);
+    return;
+  }
+  const before = serialize();
+  if (value === "auto") delete selected.ends;
+  else selected.ends = value;
+  commitChange(before);
+  render();
+  setStatus(value === "auto" ? "Connector follows the shapes it joins." : `Connector set to ${names[value].toLowerCase()}.`);
+}
+
+function busAt(point) {
+  let best = null;
+  let bestDistance = 22;
+  for (const shape of state.doc.shapes) {
+    if (shape.type !== "bus") continue;
+    if (point.x < shape.x || point.x > shape.x + shape.w) continue;
+    const distance = Math.abs(point.y - (shape.y + shape.h / 2));
+    if (distance <= bestDistance) {
+      best = shape;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function tapOnBus(bus, point, fromId) {
+  const cy = bus.y + bus.h / 2;
+  const centerX = Math.min(Math.max(point.x, bus.x + 8), bus.x + bus.w - 8);
+  const source = getShape(fromId);
+  const sourceY = source ? source.y + source.h / 2 : point.y;
+  const port = sourceY <= cy ? "top" : "bottom";
+  const existing = state.doc.shapes.find((shape) =>
+    shape.type === "arei-node"
+    && Math.abs(shape.x + shape.w / 2 - centerX) <= 14
+    && Math.abs(shape.y + shape.h / 2 - cy) <= 14);
+  if (existing) return { id: existing.id, port };
+  const node = {
+    id: uid(),
+    type: "arei-node",
+    x: snap(centerX - 20),
+    y: snap(cy - 20),
+    w: 40,
+    h: 40,
+    text: "",
+  };
+  state.doc.shapes.push(node);
+  return { id: node.id, port };
+}
+
+function wireDroppedShape(shape, point) {
+  if (shape.type === "bus" || shape.type === "arei-node" || shape.type === "legend") return;
+  const bus = busAt(point);
+  if (!bus) return;
+  const cy = bus.y + bus.h / 2;
+  const above = point.y <= cy;
+  const gap = GRID;
+  shape.x = snap(point.x - shape.w / 2);
+  shape.y = above ? snap(cy - gap - shape.h) : snap(cy + gap);
+  const tap = tapOnBus(bus, { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 }, shape.id);
+  state.doc.connectors.push({
+    id: uid(),
+    fromId: shape.id,
+    fromPort: above ? "bottom" : "top",
+    toId: tap.id,
+    toPort: tap.port,
+    text: "",
+  });
+}
+
+function resolveTarget(fromId, point) {
+  const direct = portTarget(point, fromId);
+  const directShape = direct && getShape(direct.id);
+  if (directShape && directShape.type === "bus") return tapOnBus(directShape, point, fromId);
+  if (direct) return direct;
+  const bus = busAt(point);
+  if (bus && bus.id !== fromId) return tapOnBus(bus, point, fromId);
+  return null;
+}
+
+function addConnector(fromId, fromPort, target) {
+  if (!target || target.id === fromId || !getShape(fromId) || !getShape(target.id)) return null;
+  const connector = {
+    id: uid(),
+    fromId,
+    fromPort,
+    toId: target.id,
+    toPort: target.port,
+    text: "",
+  };
+  if (knownEnds(state.connectorEnds)) connector.ends = state.connectorEnds;
+  state.doc.connectors.push(connector);
+  state.selection = { kind: "connector", id: connector.id };
+  return connector;
 }
 
 function finishGesture() {
@@ -1840,19 +2088,26 @@ function finishGesture() {
     if (shape) delete shape.origin;
     commitChange(gesture.before);
   } else if (gesture.type === "connect" && !nativePortDrag) {
-    const port = portTarget(gesture.pointer, gesture.fromId);
-    if (port) {
-      const connector = {
+    const target = resolveTarget(gesture.fromId, gesture.pointer);
+    if (addConnector(gesture.fromId, gesture.fromPort, target)) commitChange(gesture.before);
+  } else if (gesture.type === "bus") {
+    const end = gesture.pointer || { x: gesture.sx, y: gesture.sy };
+    const x1 = snap(Math.min(gesture.sx, end.x));
+    const x2 = snap(Math.max(gesture.sx, end.x));
+    if (x2 - x1 >= MIN_SIZE) {
+      const shape = {
         id: uid(),
-        fromId: gesture.fromId,
-        fromPort: gesture.fromPort,
-        toId: port.id,
-        toPort: port.port,
+        type: "bus",
+        x: x1,
+        y: snap(gesture.sy) - 20,
+        w: x2 - x1,
+        h: 40,
         text: "",
       };
-      state.doc.connectors.push(connector);
-      state.selection = { kind: "connector", id: connector.id };
+      state.doc.shapes.push(shape);
+      selectShapes([shape.id]);
       commitChange(gesture.before);
+      setStatus("Bus added. Drop a symbol on it to add a tap.");
     }
   }
   nativePortDrag = false;
@@ -1966,20 +2221,270 @@ function symbolGroup(fallback, nodes, nested, key) {
   return details;
 }
 
-function mastersIn(categoryId) {
-  return MASTERS.filter((master) => master.category === categoryId).map(masterButton);
+function copiedRecords() {
+  const ids = new Set(selectedShapeIds());
+  if (!ids.size) return null;
+  return {
+    shapes: state.doc.shapes.filter((shape) => ids.has(shape.id)).map(shapeRecord),
+    connectors: state.doc.connectors
+      .filter((connector) => ids.has(connector.fromId) && ids.has(connector.toId))
+      .map(connectorRecord),
+  };
+}
+
+function stampCopies(records, dx, dy) {
+  const before = serialize();
+  const map = new Map();
+  const ids = [];
+  for (const raw of records.shapes) {
+    const shape = {
+      id: uid(),
+      type: raw.type,
+      x: snap(Number(raw.x) + dx),
+      y: snap(Number(raw.y) + dy),
+      w: raw.w,
+      h: raw.h,
+      text: raw.text,
+    };
+    map.set(String(raw.id), shape.id);
+    state.doc.shapes.push(shape);
+    ids.push(shape.id);
+  }
+  for (const raw of records.connectors) {
+    const fromId = map.get(String(raw.fromId));
+    const toId = map.get(String(raw.toId));
+    if (!fromId || !toId) continue;
+    const connector = {
+      id: uid(),
+      fromId,
+      fromPort: raw.fromPort,
+      toId,
+      toPort: raw.toPort,
+      text: raw.text,
+    };
+    if (knownEnds(raw.ends)) connector.ends = raw.ends;
+    state.doc.connectors.push(connector);
+  }
+  selectShapes(ids);
+  commitChange(before);
+  render();
+  return ids.length;
+}
+
+function copySelection() {
+  const records = copiedRecords();
+  if (!records) {
+    setStatus("Select a shape to copy.");
+    return;
+  }
+  state.clipboard = records;
+  const count = records.shapes.length;
+  setStatus(count === 1 ? "Copied 1 shape." : `Copied ${count} shapes.`);
+}
+
+function pasteClipboard() {
+  if (!state.clipboard || !state.clipboard.shapes.length) {
+    setStatus("Nothing to paste.");
+    return;
+  }
+  const count = stampCopies(state.clipboard, GRID, GRID);
+  for (const shape of state.clipboard.shapes) {
+    shape.x += GRID;
+    shape.y += GRID;
+  }
+  setStatus(count === 1 ? "Pasted 1 shape." : `Pasted ${count} shapes.`);
+}
+
+function duplicateSelection() {
+  const records = copiedRecords();
+  if (!records) {
+    setStatus("Select a shape to duplicate.");
+    return;
+  }
+  const count = stampCopies(records, GRID, GRID);
+  setStatus(count === 1 ? "Duplicated 1 shape." : `Duplicated ${count} shapes.`);
+}
+
+function alignLeft() {
+  const shapes = selectedShapeIds().map(getShape).filter(Boolean);
+  if (shapes.length < 2) {
+    setStatus("Select several shapes to align.");
+    return;
+  }
+  const before = serialize();
+  const left = Math.min(...shapes.map((shape) => shape.x));
+  for (const shape of shapes) shape.x = left;
+  commitChange(before);
+  render();
+  setStatus("Aligned left.");
+}
+
+function spaceEven() {
+  const shapes = selectedShapeIds().map(getShape).filter(Boolean);
+  if (shapes.length < 2) {
+    setStatus("Select several shapes to space.");
+    return;
+  }
+  const spanX = Math.max(...shapes.map((shape) => shape.x + shape.w / 2)) - Math.min(...shapes.map((shape) => shape.x + shape.w / 2));
+  const spanY = Math.max(...shapes.map((shape) => shape.y + shape.h / 2)) - Math.min(...shapes.map((shape) => shape.y + shape.h / 2));
+  const horizontal = spanX >= spanY;
+  const sorted = [...shapes].sort((a, b) => horizontal
+    ? (a.x + a.w / 2) - (b.x + b.w / 2)
+    : (a.y + a.h / 2) - (b.y + b.h / 2));
+  const start = horizontal ? sorted[0].x + sorted[0].w / 2 : sorted[0].y + sorted[0].h / 2;
+  const end = horizontal
+    ? sorted[sorted.length - 1].x + sorted[sorted.length - 1].w / 2
+    : sorted[sorted.length - 1].y + sorted[sorted.length - 1].h / 2;
+  const before = serialize();
+  sorted.forEach((shape, index) => {
+    const at = start + (end - start) * (sorted.length === 1 ? 0 : index / (sorted.length - 1));
+    if (horizontal) shape.x = snap(at - shape.w / 2);
+    else shape.y = snap(at - shape.h / 2);
+  });
+  if (!commitChange(before)) {
+    setStatus("Already spaced.");
+    return;
+  }
+  render();
+  setStatus(horizontal ? "Spaced across." : "Spaced down.");
+}
+
+function persistDraft() {
+  try {
+    if (!state.doc.shapes.length && !state.doc.connectors.length) {
+      localStorage.removeItem("misio-draft");
+      return;
+    }
+    localStorage.setItem("misio-draft", JSON.stringify({
+      text: serialize(),
+      saved: state.savedSnapshot,
+    }));
+  } catch (error) {
+    // The drawing still works if the browser refuses storage.
+  }
+}
+
+function restoreDraft() {
+  let raw = "";
+  try {
+    raw = localStorage.getItem("misio-draft") || "";
+  } catch (error) {
+    return;
+  }
+  if (!raw) return;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (error) {
+    return;
+  }
+  if (!data || typeof data.text !== "string") return;
+  openText(data.text);
+  state.past = [];
+  state.future = [];
+  if (typeof data.saved === "string") state.savedSnapshot = data.saved;
+  persistDraft();
+  updateChrome();
+  setStatus("Restored the last drawing.");
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
+}
+
+function diagramTitle() {
+  const text = state.doc.shapes.find((shape) => shape.type === "text" && String(shape.text || "").trim());
+  if (!text) return "Misio";
+  return String(text.text).split("\n")[0].trim() || "Misio";
+}
+
+function exportPdf() {
+  if (state.editor) closeEditor(true);
+  if (!state.doc.shapes.length) {
+    setStatus("Nothing to export.");
+    return;
+  }
+  let frame = document.getElementById("print-frame");
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.id = "print-frame";
+    frame.setAttribute("title", "Print");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+    document.body.appendChild(frame);
+  }
+  const title = escapeHtml(diagramTitle());
+  const svg = exportSvgString().replace(/^<\?xml[^>]*>\s*/, "");
+  const doc = frame.contentDocument;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><style>
+    @page { size: A3 landscape; margin: 12mm; }
+    html, body { margin: 0; background: #fff; color: #1c1915; font-family: "Segoe UI", "Helvetica Neue", sans-serif; }
+    h1 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+    svg { width: 100%; height: auto; max-height: 250mm; }
+  </style></head><body><h1>${title}</h1>${svg}<` + `script>window.addEventListener("load", function () { window.print(); });<` + `/script></body></html>`);
+  doc.close();
+  setStatus("Choose Save as PDF in the print dialog.");
+  window.setTimeout(() => {
+    try {
+      if (window.Misio && window.Misio.skipPrint) return;
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch (error) {
+      setStatus("The print dialog could not open.");
+    }
+  }, 50);
+}
+
+function mastersIn(categoryId, query) {
+  return MASTERS.filter((master) => master.category === categoryId && masterMatches(master, query)).map(masterButton);
+}
+
+function masterSearchText(master) {
+  const bits = [master.name, master.type, labelFor(master.type)];
+  const table = window.MisioLang || {};
+  for (const lang of Object.values(table)) {
+    if (lang && lang[master.type]) bits.push(lang[master.type]);
+  }
+  return bits.join(" ").toLowerCase();
+}
+
+function masterMatches(master, query) {
+  if (!query) return true;
+  const haystack = masterSearchText(master);
+  return query.split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
 }
 
 function buildMasters() {
+  const query = shapeSearch.value.trim().toLowerCase();
+  mastersEl.replaceChildren();
   for (const master of MASTERS) {
     if (master.category && master.category !== "standard") continue;
-    mastersEl.appendChild(masterButton(master));
+    if (masterMatches(master, query)) mastersEl.appendChild(masterButton(master));
   }
-  const areiSections = window.MisioArei.categories.map((category) =>
-    symbolGroup(category.name, mastersIn(category.id), true, category.id));
-  mastersEl.appendChild(symbolGroup("AREI", areiSections, false, "arei"));
+  const areiSections = window.MisioArei.categories.map((category) => {
+    const nodes = mastersIn(category.id, query);
+    if (!nodes.length) return null;
+    const group = symbolGroup(category.name, nodes, true, category.id);
+    if (query) group.open = true;
+    return group;
+  }).filter(Boolean);
+  if (areiSections.length) {
+    const arei = symbolGroup("AREI", areiSections, false, "arei");
+    if (query) arei.open = true;
+    mastersEl.appendChild(arei);
+  }
   for (const category of window.MisioNetwork.categories) {
-    mastersEl.appendChild(symbolGroup(category.name, mastersIn(category.id), false, category.id));
+    const nodes = mastersIn(category.id, query);
+    if (!nodes.length) continue;
+    const group = symbolGroup(category.name, nodes, false, category.id);
+    if (query) group.open = true;
+    mastersEl.appendChild(group);
+  }
+  if (!mastersEl.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = "No matching shapes.";
+    mastersEl.appendChild(empty);
   }
 }
 
@@ -2001,6 +2506,22 @@ function onKeyDown(event) {
     return;
   }
   if (event.target === textarea) return;
+  const field = event.target && (event.target.tagName === "INPUT" || event.target.tagName === "SELECT");
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && !field) {
+    event.preventDefault();
+    copySelection();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && !field) {
+    event.preventDefault();
+    pasteClipboard();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d" && !field) {
+    event.preventDefault();
+    duplicateSelection();
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
     event.preventDefault();
     undo();
@@ -2040,6 +2561,10 @@ function onKeyDown(event) {
     setTool("connect");
     return;
   }
+  if (event.key === "b" || event.key === "B") {
+    setTool("bus");
+    return;
+  }
   const step = GRID;
   if (event.key === "ArrowLeft") { event.preventDefault(); nudge(-step, 0); }
   else if (event.key === "ArrowRight") { event.preventDefault(); nudge(step, 0); }
@@ -2061,6 +2586,12 @@ function onDoubleClick(event) {
 
 selectButton.addEventListener("click", () => setTool("select"));
 connectButton.addEventListener("click", () => setTool("connect"));
+busButton.addEventListener("click", () => setTool("bus"));
+endsSelect.addEventListener("change", () => applyConnectorEnds(endsSelect.value));
+document.getElementById("align-left").addEventListener("click", alignLeft);
+document.getElementById("space-even").addEventListener("click", spaceEven);
+document.getElementById("export-pdf").addEventListener("click", exportPdf);
+shapeSearch.addEventListener("input", () => buildMasters());
 undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
 document.getElementById("arrange").addEventListener("click", arrangeDiagram);
@@ -2105,22 +2636,12 @@ wrap.addEventListener("drop", (event) => {
   if (portData) {
     event.preventDefault();
     const [fromId, fromPort] = portData.split(":");
-    const target = portTarget(clientToWorld(event.clientX, event.clientY), fromId);
+    const point = clientToWorld(event.clientX, event.clientY);
     state.gesture = null;
     nativePortDrag = false;
-    if (target && PORTS.includes(fromPort) && getShape(fromId)) {
+    if (PORTS.includes(fromPort) && getShape(fromId)) {
       const before = serialize();
-      const connector = {
-        id: uid(),
-        fromId,
-        fromPort,
-        toId: target.id,
-        toPort: target.port,
-        text: "",
-      };
-      state.doc.connectors.push(connector);
-      state.selection = { kind: "connector", id: connector.id };
-      commitChange(before);
+      if (addConnector(fromId, fromPort, resolveTarget(fromId, point))) commitChange(before);
     }
     render();
     return;
@@ -2219,6 +2740,7 @@ document.documentElement.lang = state.lang;
 langSelect.addEventListener("change", () => applyLanguage(langSelect.value));
 state.savedSnapshot = serialize();
 render();
+restoreDraft();
 
 window.Misio = {
   getDoc() {
@@ -2230,4 +2752,5 @@ window.Misio = {
   lastDownload() {
     return lastDownload;
   },
+  skipPrint: false,
 };

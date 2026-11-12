@@ -30,7 +30,7 @@ body {
   overflow: hidden;
 }
 
-button, textarea {
+button, textarea, input {
   font: inherit;
 }
 
@@ -123,7 +123,8 @@ button[aria-pressed="true"] {
   margin: 0 2px;
 }
 
-#lang {
+#lang,
+#connector-ends {
   color: var(--ink);
   background: var(--panel);
   border: 1px solid var(--line);
@@ -189,6 +190,15 @@ button[aria-pressed="true"] {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+#shape-search {
+  width: 100%;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
 }
 
 #masters {
