@@ -28,6 +28,12 @@ const FLOW_MASTERS = [
 ];
 const MASTERS = FLOW_MASTERS.concat(window.MisioArei.masters, window.MisioNetwork.masters);
 const TYPES = new Set(MASTERS.map((master) => master.type));
+TYPES.add("legend");
+const LEGEND_PAD = 14;
+const LEGEND_ICON = 28;
+const LEGEND_ROW = 36;
+const LEGEND_TITLE = 22;
+const LEGEND_GAP = 10;
 
 const svg = document.getElementById("canvas");
 const wrap = document.getElementById("canvas-wrap");
@@ -58,6 +64,7 @@ const state = {
   gesture: null,
   editor: null,
   spaceDown: false,
+  lang: storedLanguage(),
 };
 
 let statusTimer = 0;
@@ -70,6 +77,31 @@ function el(name, attrs, parent) {
   }
   if (parent) parent.appendChild(node);
   return node;
+}
+
+function storedLanguage() {
+  try {
+    const saved = localStorage.getItem("misio-lang");
+    if (saved === "nl" || saved === "fr" || saved === "en") return saved;
+  } catch (error) {
+    return "en";
+  }
+  return "en";
+}
+
+function labelFor(key) {
+  const table = (window.MisioLang && window.MisioLang[state.lang]) || {};
+  if (table[key]) return table[key];
+  if (String(key).startsWith("group:")) {
+    const id = key.slice(6);
+    if (id === "arei") return "AREI";
+    const categories = window.MisioArei.categories.concat(window.MisioNetwork.categories);
+    const category = categories.find((item) => item.id === id);
+    return category ? category.name : id;
+  }
+  const master = MASTERS.find((item) => item.type === key);
+  if (master) return master.name;
+  return key;
 }
 
 function snap(value) {
@@ -266,30 +298,32 @@ function textWidth(text, size) {
 
 function wrapLines(text, maxWidth, fontSize) {
   const lines = [];
-  let line = "";
-  for (const word of String(text).split(/\s+/)) {
-    if (!word) continue;
-    const trial = line ? `${line} ${word}` : word;
-    if (textWidth(trial, fontSize) <= maxWidth) {
-      line = trial;
-      continue;
+  for (const paragraph of String(text).split("\n")) {
+    let line = "";
+    for (const word of paragraph.split(/\s+/)) {
+      if (!word) continue;
+      const trial = line ? `${line} ${word}` : word;
+      if (textWidth(trial, fontSize) <= maxWidth) {
+        line = trial;
+        continue;
+      }
+      if (line) lines.push(line);
+      if (textWidth(word, fontSize) <= maxWidth) {
+        line = word;
+        continue;
+      }
+      let chunk = "";
+      for (const character of word) {
+        if (textWidth(chunk + character, fontSize) <= maxWidth) chunk += character;
+        else {
+          if (chunk) lines.push(chunk);
+          chunk = character;
+        }
+      }
+      line = chunk;
     }
     if (line) lines.push(line);
-    if (textWidth(word, fontSize) <= maxWidth) {
-      line = word;
-      continue;
-    }
-    let chunk = "";
-    for (const character of word) {
-      if (textWidth(chunk + character, fontSize) <= maxWidth) chunk += character;
-      else {
-        if (chunk) lines.push(chunk);
-        chunk = character;
-      }
-    }
-    line = chunk;
   }
-  if (line) lines.push(line);
   return lines.length ? lines : [""];
 }
 
@@ -324,7 +358,7 @@ function drawAreiLabel(parent, shape) {
   const icon = symbolPack(shape.type).iconBox(shape);
   const maxWidth = Math.max(24, shape.w - 8);
   const size = 12;
-  const lines = wrapLines(text, maxWidth, size).slice(0, 2);
+  const lines = wrapLines(text, maxWidth, size).slice(0, 3);
   const lineHeight = size * 1.25;
   const cx = shape.x + shape.w / 2;
   const node = el("text", {
@@ -342,6 +376,7 @@ function drawAreiLabel(parent, shape) {
 }
 
 function drawLabel(parent, shape) {
+  if (shape.type === "legend") return;
   if (symbolPack(shape.type)) {
     drawAreiLabel(parent, shape);
     return;
@@ -378,6 +413,79 @@ function shapePaint(shape) {
   };
 }
 
+function usedLegendMasters(shapes) {
+  const used = new Set(shapes.filter((shape) => shape.type !== "legend").map((shape) => shape.type));
+  return MASTERS.filter((master) => used.has(master.type));
+}
+
+function legendLayout(masters) {
+  const columns = masters.length > 12 ? 2 : 1;
+  let nameWidth = textWidth(labelFor("legend"), 13);
+  for (const master of masters) nameWidth = Math.max(nameWidth, textWidth(labelFor(master.type), 13));
+  const columnWidth = LEGEND_ICON + LEGEND_GAP + nameWidth;
+  const width = Math.ceil(LEGEND_PAD * 2 + columns * columnWidth + (columns - 1) * 18);
+  const rows = Math.ceil(masters.length / columns) || 1;
+  const height = Math.ceil(LEGEND_PAD + LEGEND_TITLE + rows * LEGEND_ROW + 6);
+  return {
+    w: Math.max(MIN_SIZE, width),
+    h: Math.max(MIN_SIZE, height),
+    columns,
+    columnWidth,
+    rows,
+  };
+}
+
+function legendMasters(shape) {
+  const wanted = new Set(String(shape.text || "").split("\n").map((type) => type.trim()).filter(Boolean));
+  return MASTERS.filter((master) => wanted.has(master.type));
+}
+
+function drawLegend(parent, shape, paint) {
+  const { x, y, w, h } = shape;
+  el("rect", {
+    x, y, width: w, height: h, rx: 8,
+    fill: "#fffcf7",
+    stroke: paint.stroke,
+    "stroke-width": paint.sw,
+  }, parent);
+  const title = el("text", {
+    x: x + LEGEND_PAD,
+    y: y + LEGEND_PAD + 13,
+    fill: "#1c1915",
+    "font-family": "Segoe UI, Helvetica Neue, sans-serif",
+    "font-size": 13,
+    "font-weight": 600,
+  }, parent);
+  title.textContent = labelFor("legend");
+  el("line", {
+    x1: x + LEGEND_PAD,
+    y1: y + LEGEND_PAD + LEGEND_TITLE - 4,
+    x2: x + w - LEGEND_PAD,
+    y2: y + LEGEND_PAD + LEGEND_TITLE - 4,
+    stroke: "#e2dcd2",
+    "stroke-width": 1,
+  }, parent);
+  const masters = legendMasters(shape);
+  const layout = legendLayout(masters);
+  const iconPaint = { fill: "#fffcf7", stroke: "#1c1915", sw: 1.25, selected: false };
+  masters.forEach((master, index) => {
+    const column = Math.floor(index / layout.rows);
+    const row = index % layout.rows;
+    const ix = x + LEGEND_PAD + column * (layout.columnWidth + 18);
+    const iy = y + LEGEND_PAD + LEGEND_TITLE + row * LEGEND_ROW + (LEGEND_ROW - LEGEND_ICON) / 2;
+    drawOutline(parent, { type: master.type, x: ix, y: iy, w: LEGEND_ICON, h: LEGEND_ICON, text: "" }, iconPaint);
+    const name = el("text", {
+      x: ix + LEGEND_ICON + LEGEND_GAP,
+      y: iy + LEGEND_ICON / 2,
+      fill: "#1c1915",
+      "font-family": "Segoe UI, Helvetica Neue, sans-serif",
+      "font-size": 13,
+      "dominant-baseline": "middle",
+    }, parent);
+    name.textContent = labelFor(master.type);
+  });
+}
+
 function drawOutline(parent, shape, paint) {
   const { x, y, w, h } = shape;
   const right = x + w;
@@ -390,6 +498,10 @@ function drawOutline(parent, shape, paint) {
     "stroke-width": paint.sw,
     "stroke-linejoin": "round",
   };
+  if (shape.type === "legend") {
+    drawLegend(parent, shape, paint);
+    return;
+  }
   const pack = symbolPack(shape.type);
   if (pack) {
     pack.draw(parent, shape, paint);
@@ -515,9 +627,11 @@ function drawShapeBody(parent, shape) {
   drawOutline(parent, shape, paint);
   drawLabel(parent, shape);
   if (shape.type === "decision") drawDecisionSides(parent, shape);
-  const label = shape.type === "decision"
-    ? `${shape.text || "Decision"}. Yes leaves the bottom, No leaves the right`
-    : (shape.text || shape.type);
+  const label = shape.type === "legend"
+    ? "Legend"
+    : shape.type === "decision"
+      ? `${shape.text || "Decision"}. Yes leaves the bottom, No leaves the right`
+      : (shape.text || shape.type);
   el("rect", {
     x: shape.x,
     y: shape.y,
@@ -530,19 +644,26 @@ function drawShapeBody(parent, shape) {
   }, parent);
 }
 
+function wirePair(connector) {
+  const from = getShape(connector.fromId);
+  const to = getShape(connector.toId);
+  return Boolean(from && to && symbolPack(from.type) && symbolPack(to.type));
+}
+
 function drawConnector(parent, connector, options = {}) {
   const points = connectorPoints(connector);
   if (!points) return;
   const selected = state.selection && state.selection.kind === "connector" && state.selection.id === connector.id;
+  const wiring = !options.preview && wirePair(connector);
   const path = el("path", {
     d: toPath(points),
     fill: "none",
-    stroke: options.preview ? "#7aa0c4" : "#184e86",
+    stroke: options.preview ? "#7aa0c4" : wiring ? "#1c1915" : "#184e86",
     "stroke-width": selected ? 2.4 : 1.7,
     "stroke-linejoin": "round",
     "stroke-linecap": "round",
     "stroke-dasharray": options.preview ? "5 4" : "0",
-    "marker-end": options.preview ? null : "url(#arrow)",
+    "marker-end": options.preview || wiring ? null : "url(#arrow)",
     "data-connector-id": connector.id,
   }, parent);
   path.dataset.connectorId = connector.id;
@@ -572,6 +693,7 @@ function drawConnector(parent, connector, options = {}) {
 }
 
 function portsVisible(shape) {
+  if (shape.type === "legend") return false;
   if (state.tool === "connect") return true;
   if (state.gesture && state.gesture.type === "connect") return true;
   if (state.selection && state.selection.kind === "shape" && state.selection.id === shape.id) return true;
@@ -581,7 +703,7 @@ function portsVisible(shape) {
 function drawChrome(parent) {
   if (state.tool === "select" && state.selection && state.selection.kind === "shape") {
     const shape = getShape(state.selection.id);
-    if (shape) {
+    if (shape && shape.type !== "legend") {
       const corners = [
         ["nw", shape.x, shape.y],
         ["ne", shape.x + shape.w, shape.y],
@@ -662,7 +784,17 @@ function drawPreview(parent) {
   }, parent);
 }
 
+function fitLegends() {
+  for (const shape of state.doc.shapes) {
+    if (shape.type !== "legend") continue;
+    const layout = legendLayout(legendMasters(shape));
+    shape.w = layout.w;
+    shape.h = layout.h;
+  }
+}
+
 function render() {
+  fitLegends();
   while (svg.firstChild) svg.removeChild(svg.firstChild);
   const defs = el("defs", {}, svg);
   const pattern = el("pattern", {
@@ -1275,15 +1407,61 @@ function layoutDiagram(doc) {
   for (const connector of connectors) retargetConnector(connector, byId);
 }
 
+function positionLegend(shape, body) {
+  const right = Math.max(...body.map((item) => item.x + item.w));
+  const bottom = Math.max(...body.map((item) => item.y + item.h));
+  const left = Math.min(...body.map((item) => item.x));
+  let x = snap(right - shape.w);
+  if (x < left) x = snap(right + GRID);
+  shape.x = x;
+  shape.y = snap(bottom + GRID * 2);
+}
+
+function addLegend() {
+  if (state.gesture) return;
+  if (state.editor) closeEditor(true);
+  const body = state.doc.shapes.filter((shape) => shape.type !== "legend");
+  const masters = usedLegendMasters(body);
+  if (!masters.length) {
+    setStatus("Nothing to list.");
+    return;
+  }
+  const before = serialize();
+  const oldIds = new Set(state.doc.shapes.filter((shape) => shape.type === "legend").map((shape) => shape.id));
+  state.doc.shapes = body;
+  state.doc.connectors = state.doc.connectors.filter((connector) => !oldIds.has(connector.fromId) && !oldIds.has(connector.toId));
+  const layout = legendLayout(masters);
+  const shape = {
+    id: uid(),
+    type: "legend",
+    x: 0,
+    y: 0,
+    w: layout.w,
+    h: layout.h,
+    text: masters.map((master) => master.type).join("\n"),
+  };
+  positionLegend(shape, body);
+  state.doc.shapes.push(shape);
+  state.selection = { kind: "shape", id: shape.id };
+  commitChange(before);
+  render();
+  setStatus(masters.length === 1 ? "Legend lists 1 symbol." : `Legend lists ${masters.length} symbols.`);
+}
+
 function arrangeDiagram() {
   if (state.gesture) return;
   if (state.editor) closeEditor(true);
-  if (!state.doc.shapes.length) {
+  const legends = state.doc.shapes.filter((shape) => shape.type === "legend");
+  const body = state.doc.shapes.filter((shape) => shape.type !== "legend");
+  if (!body.length) {
     setStatus("Nothing to arrange.");
     return;
   }
   const before = serialize();
+  state.doc.shapes = body;
   layoutDiagram(state.doc);
+  for (const legend of legends) state.doc.shapes.push(legend);
+  if (legends[0]) positionLegend(legends[0], body);
   commitChange(before);
   fitView();
   setStatus("Arranged the diagram.");
@@ -1386,7 +1564,7 @@ function closeEditor(commit) {
 function openEditor(kind, id) {
   if (state.editor) closeEditor(true);
   const item = kind === "shape" ? getShape(id) : getConnector(id);
-  if (!item) return;
+  if (!item || (kind === "shape" && item.type === "legend")) return;
   state.selection = { kind, id };
   state.editor = { kind, id, original: item.text };
   textarea.value = item.text;
@@ -1413,6 +1591,7 @@ function clearDoc() {
 function sanitizeShape(raw) {
   if (!raw || !TYPES.has(raw.type)) return null;
   const master = MASTERS.find((item) => item.type === raw.type);
+  if (!master && raw.type !== "legend") return null;
   const shape = {
     id: raw.id == null || raw.id === "" ? uid() : String(raw.id),
     type: raw.type,
@@ -1420,12 +1599,11 @@ function sanitizeShape(raw) {
     y: Number(raw.y),
     w: Number(raw.w),
     h: Number(raw.h),
-    text: String(raw.text ?? "").slice(0, 1000),
+    text: String(raw.text ?? "").slice(0, raw.type === "legend" ? 8000 : 1000),
   };
   if (![shape.x, shape.y, shape.w, shape.h].every(Number.isFinite)) return null;
   shape.w = Math.max(MIN_SIZE, shape.w);
   shape.h = Math.max(MIN_SIZE, shape.h);
-  if (!master) return null;
   bumpId(shape.id);
   return shape;
 }
@@ -1701,7 +1879,7 @@ function startStencilDrag(master, event) {
   nativeStencilDrag = false;
   const ghost = document.createElement("div");
   ghost.className = "ghost";
-  ghost.textContent = master.name;
+  ghost.textContent = labelFor(master.type);
   document.body.appendChild(ghost);
   const move = (moveEvent) => {
     ghost.style.left = `${moveEvent.clientX + 12}px`;
@@ -1728,7 +1906,7 @@ function onStencilDragStart(master, event) {
   event.dataTransfer.effectAllowed = "copy";
   const ghost = document.createElement("div");
   ghost.className = "ghost";
-  ghost.textContent = master.name;
+  ghost.textContent = labelFor(master.type);
   ghost.style.top = "-1000px";
   document.body.appendChild(ghost);
   event.dataTransfer.setDragImage(ghost, 12, 12);
@@ -1741,7 +1919,7 @@ function masterButton(master) {
   button.className = "master";
   button.draggable = true;
   button.dataset.type = master.type;
-  button.title = `Drag ${master.name} onto the page`;
+  button.title = labelFor(master.type);
   const icon = document.createElementNS(SVGNS, "svg");
   icon.setAttribute("viewBox", "0 0 76 40");
   icon.setAttribute("aria-hidden", "true");
@@ -1754,7 +1932,8 @@ function masterButton(master) {
   });
   plainDraw = false;
   const name = document.createElement("span");
-  name.textContent = master.name;
+  name.dataset.lang = master.type;
+  name.textContent = labelFor(master.type);
   button.append(icon, name);
   button.addEventListener("dragstart", (event) => onStencilDragStart(master, event));
   button.addEventListener("pointerdown", (event) => {
@@ -1769,11 +1948,16 @@ function masterButton(master) {
   return button;
 }
 
-function symbolGroup(name, nodes, nested) {
+function symbolGroup(fallback, nodes, nested, key) {
   const details = document.createElement("details");
   details.className = nested ? "symbol-group symbol-group-nested" : "symbol-group";
   const summary = document.createElement("summary");
-  summary.textContent = name;
+  if (key) {
+    summary.dataset.lang = `group:${key}`;
+    summary.textContent = labelFor(`group:${key}`);
+  } else {
+    summary.textContent = fallback;
+  }
   summary.title = nested ? "Show or hide these symbols" : "Show or hide this group";
   const list = document.createElement("div");
   list.className = "symbol-group-items";
@@ -1792,17 +1976,17 @@ function buildMasters() {
     mastersEl.appendChild(masterButton(master));
   }
   const areiSections = window.MisioArei.categories.map((category) =>
-    symbolGroup(category.name, mastersIn(category.id), true));
-  mastersEl.appendChild(symbolGroup("AREI", areiSections, false));
+    symbolGroup(category.name, mastersIn(category.id), true, category.id));
+  mastersEl.appendChild(symbolGroup("AREI", areiSections, false, "arei"));
   for (const category of window.MisioNetwork.categories) {
-    mastersEl.appendChild(symbolGroup(category.name, mastersIn(category.id), false));
+    mastersEl.appendChild(symbolGroup(category.name, mastersIn(category.id), false, category.id));
   }
 }
 
 function isTypingTarget(target) {
   if (!target) return false;
   const tag = target.tagName;
-  return tag === "TEXTAREA" || tag === "INPUT" || tag === "BUTTON" || target.getAttribute("role") === "button";
+  return tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT" || tag === "BUTTON" || target.getAttribute("role") === "button";
 }
 
 function onKeyDown(event) {
@@ -1880,6 +2064,7 @@ connectButton.addEventListener("click", () => setTool("connect"));
 undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
 document.getElementById("arrange").addEventListener("click", arrangeDiagram);
+document.getElementById("legend").addEventListener("click", addLegend);
 document.getElementById("fit").addEventListener("click", fitView);
 document.getElementById("zoom-in").addEventListener("click", () => {
   const rect = svg.getBoundingClientRect();
@@ -2007,7 +2192,31 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 
+function applyLanguage(lang) {
+  const next = lang === "nl" || lang === "fr" ? lang : "en";
+  state.lang = next;
+  document.documentElement.lang = next;
+  const select = document.getElementById("lang");
+  if (select && select.value !== next) select.value = next;
+  for (const node of document.querySelectorAll("[data-lang]")) {
+    node.textContent = labelFor(node.dataset.lang);
+  }
+  for (const button of mastersEl.querySelectorAll(".master")) {
+    button.title = labelFor(button.dataset.type);
+  }
+  try {
+    localStorage.setItem("misio-lang", next);
+  } catch (error) {
+    // The page still switches language if storage is blocked.
+  }
+  render();
+}
+
 buildMasters();
+const langSelect = document.getElementById("lang");
+langSelect.value = state.lang;
+document.documentElement.lang = state.lang;
+langSelect.addEventListener("change", () => applyLanguage(langSelect.value));
 state.savedSnapshot = serialize();
 render();
 

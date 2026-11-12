@@ -5,6 +5,8 @@ Misio is a small flowchart editor that runs in the browser. It is meant for the
 everyday drawing work of Visio: shapes, connectors, labels, and a tidy page.
 It does not open .vsdx files, and it does not need Visio installed.
 
+The picture of the editor is screenshot.png. GitHub shows it in README.md.
+
 
 Run
 ---
@@ -14,7 +16,8 @@ From this folder:
     py -3 misio.py
 
 The window starts a local server, opens the page, and shows whether the server
-is running. If port 8765 is taken, it tries the next port up to 8784.
+is running. If port 8765 is taken, it tries the next port up to 8784. The
+launcher only listens on this computer.
 
 Each launch writes two logs in the logs folder:
 
@@ -27,6 +30,14 @@ Python version, the folder being served, the URL, each request, and errors.
 Requirements: Python 3 with tkinter, which is included in the standard Windows
 install. The editor itself is a static page (index.html, styles.css, app.js)
 and needs no extra packages.
+
+To open the page from another computer, serve this folder on the network.
+A Raspberry Pi can do that:
+
+    python3 -m http.server 8765 --bind 0.0.0.0
+
+Then open http://<this-computer>:8765/. Drawings still download as JSON in
+the browser that made them.
 
 
 Draw
@@ -44,6 +55,12 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
     Fit                 fit the whole diagram in the window
     Arrange             lay the flowchart out from top to bottom
                         (Ctrl+Shift+L)
+    Legend              add a key of every symbol used on the page,
+                        in the bottom right corner. Click it again
+                        to refresh the key.
+    Language            English, Nederlands, or Français. Shape names
+                        and the legend follow the choice. English is
+                        the default.
     Undo / Redo         Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z
     New / Open / Save   a Misio JSON file. Save is also Ctrl+S.
     Export SVG          download the drawing as misio.svg
@@ -68,16 +85,29 @@ routers, firewalls, access points, clouds, and the other common nodes. The
 text under a symbol is its name; double-click to rename a device.
 
 
+Example
+-------
+
+eendraadschema.json is a Belgian single-line diagram. Use Open, then Fit.
+Leave Arrange alone on that file: Arrange lays a page out as a flowchart.
+
+
 Files
 -----
 
-    index.html     the page
-    styles.css     the layout
-    app.js         the editor
-    arei.js        Belgian AREI single-line symbols
-    network.js     network diagram symbols
-    misio.py       the launcher
-    readme.txt     this file
+    index.html          the page
+    styles.css          the layout
+    app.js              the editor
+    lang.js             English, Dutch, and French shape names
+    arei.js             Belgian AREI single-line symbols
+    network.js          network diagram symbols
+    misio.py            the launcher
+    favicon.svg         the browser icon
+    favicon.ico         the same icon for older browsers
+    eendraadschema.json the example single-line diagram
+    screenshot.png      the picture in README.md
+    README.md           the guide GitHub shows
+    readme.txt          this file
 
 A saved diagram is JSON:
 

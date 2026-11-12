@@ -2,6 +2,11 @@
 
 // Symbols from AREI Boek 1, tabel 2.23 (eendraadschema). Supply enters from the top.
 
+function areiCaptionReserve(text) {
+  const lines = Math.min(3, String(text || "").trim().split("\n").length);
+  return lines ? 8 + lines * 15 : 0;
+}
+
 function areiIconBox(shape) {
   const text = String(shape.text || "").trim();
   const pad = 4;
@@ -14,7 +19,8 @@ function areiIconBox(shape) {
       h: size,
     };
   }
-  const size = Math.max(28, Math.min(shape.w - pad * 2, shape.h - 30));
+  const reserve = areiCaptionReserve(text);
+  const size = Math.max(28, Math.min(shape.w - pad * 2, shape.h - reserve));
   return {
     x: shape.x + (shape.w - size) / 2,
     y: shape.y + 2,
@@ -196,6 +202,11 @@ function drawAreiSymbol(parent, shape, paint) {
       break;
     case "arei-box": g.rect(8, 8, 24, 24); break;
     case "arei-junction": g.circle(20, 20, 10, false); g.circle(20, 20, 4, true); break;
+    case "arei-node":
+      g.line(0, 20, 40, 20);
+      g.line(20, 0, 20, 40);
+      g.circle(20, 20, 2.4, true);
+      break;
     case "arei-branchbox":
       g.rect(8, 8, 24, 18);
       g.line(20, 2, 20, 8);
@@ -594,6 +605,7 @@ const AREI_MASTERS = [
   areiMaster("arei-boards", "arei-board-feeds", "Board with outgoing circuits", "5"),
   areiMaster("arei-boards", "arei-box", "Box"),
   areiMaster("arei-boards", "arei-junction", "Junction box"),
+  areiMaster("arei-boards", "arei-node", "Tap"),
   areiMaster("arei-boards", "arei-branchbox", "Branch box"),
   areiMaster("arei-boards", "arei-earth-link", "Earth disconnect"),
 

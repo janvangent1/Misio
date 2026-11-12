@@ -123,6 +123,15 @@ button[aria-pressed="true"] {
   margin: 0 2px;
 }
 
+#lang {
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
 #zoom-label {
   min-width: 44px;
   text-align: center;
