@@ -54,7 +54,18 @@ those two exits, and points the other connectors at the side that faces the
 next shape. Shapes that are not connected are packed in a row under the flow.
 
 Shapes: Start / end, Process, Decision, Subprocess, Document, Data, Database,
-Preparation, Manual input, Delay, Off-page, On-page, and Text.
+Preparation, Manual input, Delay, Off-page, On-page, and Text. These stay
+visible in the shape list.
+
+Belgian single-line diagrams (eendraadschema, AREI Boek 1 tabel 2.23) are in
+one folded AREI group. Open it, then open a section: Supply, Boards, Cables,
+Protection, Switches, Sockets, Loads, Sources, or Home automation.
+The text under a symbol is the rating or the cable type; double-click to
+change it.
+
+Network diagrams use the folded Network group: servers, racks, switches,
+routers, firewalls, access points, clouds, and the other common nodes. The
+text under a symbol is its name; double-click to rename a device.
 
 
 Files
@@ -63,6 +74,8 @@ Files
     index.html     the page
     styles.css     the layout
     app.js         the editor
+    arei.js        Belgian AREI single-line symbols
+    network.js     network diagram symbols
     misio.py       the launcher
     readme.txt     this file
 

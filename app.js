@@ -11,8 +11,8 @@ const PORT_VECTOR = {
   bottom: [0, 1],
   left: [-1, 0],
 };
-const MASTERS = [
-  { type: "terminator", name: "Start / end", w: 160, h: 64, text: "Start" },
+const FLOW_MASTERS = [
+  { type: "terminator", name: "Start / end", w: 160, h: 64, text: "Start", category: "standard" },
   { type: "process", name: "Process", w: 160, h: 80, text: "Process" },
   { type: "decision", name: "Decision", w: 150, h: 110, text: "Decision" },
   { type: "subprocess", name: "Subprocess", w: 170, h: 80, text: "Subprocess" },
@@ -24,8 +24,9 @@ const MASTERS = [
   { type: "delay", name: "Delay", w: 140, h: 64, text: "Wait" },
   { type: "offpage", name: "Off-page", w: 140, h: 64, text: "Page" },
   { type: "onpage", name: "On-page", w: 72, h: 72, text: "1" },
-  { type: "text", name: "Text", w: 140, h: 48, text: "Text" },
+  { type: "text", name: "Text", w: 140, h: 48, text: "Text", category: "standard" },
 ];
+const MASTERS = FLOW_MASTERS.concat(window.MisioArei.masters, window.MisioNetwork.masters);
 const TYPES = new Set(MASTERS.map((master) => master.type));
 
 const svg = document.getElementById("canvas");
@@ -311,7 +312,40 @@ function labelLayout(shape) {
   return { lines, size, maxWidth };
 }
 
+function symbolPack(type) {
+  if (String(type).startsWith("arei-")) return window.MisioArei;
+  if (String(type).startsWith("net-")) return window.MisioNetwork;
+  return null;
+}
+
+function drawAreiLabel(parent, shape) {
+  const text = String(shape.text || "").trim();
+  if (!text) return;
+  const icon = symbolPack(shape.type).iconBox(shape);
+  const maxWidth = Math.max(24, shape.w - 8);
+  const size = 12;
+  const lines = wrapLines(text, maxWidth, size).slice(0, 2);
+  const lineHeight = size * 1.25;
+  const cx = shape.x + shape.w / 2;
+  const node = el("text", {
+    x: cx,
+    y: icon.y + icon.h + size + 2,
+    "text-anchor": "middle",
+    "font-family": "Segoe UI, Helvetica Neue, sans-serif",
+    "font-size": size,
+    fill: "#1c1915",
+  }, parent);
+  lines.forEach((line, index) => {
+    const tspan = el("tspan", { x: cx, dy: index === 0 ? 0 : lineHeight }, node);
+    tspan.textContent = line;
+  });
+}
+
 function drawLabel(parent, shape) {
+  if (symbolPack(shape.type)) {
+    drawAreiLabel(parent, shape);
+    return;
+  }
   if (!String(shape.text).trim()) return;
   const { lines, size } = labelLayout(shape);
   const lineHeight = size * 1.25;
@@ -356,6 +390,11 @@ function drawOutline(parent, shape, paint) {
     "stroke-width": paint.sw,
     "stroke-linejoin": "round",
   };
+  const pack = symbolPack(shape.type);
+  if (pack) {
+    pack.draw(parent, shape, paint);
+    return;
+  }
   if (shape.type === "decision") {
     el("polygon", { points: `${cx},${y} ${right},${cy} ${cx},${bottom} ${x},${cy}`, ...common }, parent);
     return;
@@ -1696,47 +1735,67 @@ function onStencilDragStart(master, event) {
   window.setTimeout(() => ghost.remove(), 0);
 }
 
-function masterIcon(type) {
-  const common = `fill="#fffcf7" stroke="#1c1915" stroke-width="1.5" stroke-linejoin="round"`;
-  const icons = {
-    terminator: `<ellipse cx="38" cy="20" rx="28" ry="12" ${common}/>`,
-    process: `<rect x="8" y="8" width="60" height="24" rx="4" ${common}/>`,
-    decision: `<polygon points="38,4 68,20 38,36 8,20" ${common}/>`,
-    subprocess: `<rect x="8" y="8" width="60" height="24" rx="3" ${common}/><line x1="16" y1="8" x2="16" y2="32" stroke="#1c1915" stroke-width="1.5"/><line x1="60" y1="8" x2="60" y2="32" stroke="#1c1915" stroke-width="1.5"/>`,
-    document: `<path d="M10 8 H66 V26 Q54 20 38 28 Q24 36 10 26 Z" ${common}/>`,
-    data: `<polygon points="20,8 68,8 56,32 8,32" ${common}/>`,
-    database: `<path d="M16 14 V28 A22 6 0 0 0 60 28 V14" ${common}/><ellipse cx="38" cy="14" rx="22" ry="6" ${common}/>`,
-    preparation: `<polygon points="20,8 56,8 68,20 56,32 20,32 8,20" ${common}/>`,
-    manual: `<polygon points="8,14 68,8 68,32 8,32" ${common}/>`,
-    delay: `<path d="M10 8 H46 A12 12 0 0 1 46 32 H10 Z" ${common}/>`,
-    offpage: `<polygon points="8,8 52,8 68,20 52,32 8,32" ${common}/>`,
-    onpage: `<circle cx="38" cy="20" r="12" ${common}/>`,
-    text: `<rect x="12" y="10" width="52" height="20" rx="2" fill="#fffcf7" stroke="#1c1915" stroke-width="1.5" stroke-dasharray="4 3"/>`,
-  };
-  return icons[type] || icons.process;
+function masterButton(master) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "master";
+  button.draggable = true;
+  button.dataset.type = master.type;
+  button.title = `Drag ${master.name} onto the page`;
+  const icon = document.createElementNS(SVGNS, "svg");
+  icon.setAttribute("viewBox", "0 0 76 40");
+  icon.setAttribute("aria-hidden", "true");
+  plainDraw = true;
+  drawOutline(icon, { type: master.type, x: 8, y: 4, w: 60, h: 32, text: "" }, {
+    fill: "#fffcf7",
+    stroke: "#1c1915",
+    sw: 1.5,
+    selected: false,
+  });
+  plainDraw = false;
+  const name = document.createElement("span");
+  name.textContent = master.name;
+  button.append(icon, name);
+  button.addEventListener("dragstart", (event) => onStencilDragStart(master, event));
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    startStencilDrag(master, event);
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    addShape(master, viewCenter());
+  });
+  return button;
+}
+
+function symbolGroup(name, nodes, nested) {
+  const details = document.createElement("details");
+  details.className = nested ? "symbol-group symbol-group-nested" : "symbol-group";
+  const summary = document.createElement("summary");
+  summary.textContent = name;
+  summary.title = nested ? "Show or hide these symbols" : "Show or hide this group";
+  const list = document.createElement("div");
+  list.className = "symbol-group-items";
+  for (const node of nodes) list.appendChild(node);
+  details.append(summary, list);
+  return details;
+}
+
+function mastersIn(categoryId) {
+  return MASTERS.filter((master) => master.category === categoryId).map(masterButton);
 }
 
 function buildMasters() {
   for (const master of MASTERS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "master";
-    button.draggable = true;
-    button.dataset.type = master.type;
-    button.title = `Drag ${master.name} onto the page`;
-    button.innerHTML = `<svg viewBox="0 0 76 40" aria-hidden="true">${masterIcon(master.type)}</svg><span></span>`;
-    button.querySelector("span").textContent = master.name;
-    button.addEventListener("dragstart", (event) => onStencilDragStart(master, event));
-    button.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
-      startStencilDrag(master, event);
-    });
-    button.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      addShape(master, viewCenter());
-    });
-    mastersEl.appendChild(button);
+    if (master.category && master.category !== "standard") continue;
+    mastersEl.appendChild(masterButton(master));
+  }
+  const areiSections = window.MisioArei.categories.map((category) =>
+    symbolGroup(category.name, mastersIn(category.id), true));
+  mastersEl.appendChild(symbolGroup("AREI", areiSections, false));
+  for (const category of window.MisioNetwork.categories) {
+    mastersEl.appendChild(symbolGroup(category.name, mastersIn(category.id), false));
   }
 }
 
