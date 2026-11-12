@@ -46,6 +46,53 @@ OK = "#1d6b3a"
 BAD = "#8d2b2b"
 
 
+class MisioServer(ThreadingHTTPServer):
+    """Local file server that can drop every open socket on shutdown."""
+
+    daemon_threads = True
+
+    def __init__(self, server_address, request_handler):
+        super().__init__(server_address, request_handler)
+        self.released = False
+        self._clients = set()
+        self._client_lock = threading.Lock()
+
+    def process_request(self, request, client_address):
+        with self._client_lock:
+            self._clients.add(request)
+        super().process_request(request, client_address)
+
+    def shutdown_request(self, request):
+        self._drop_client(request)
+        super().shutdown_request(request)
+
+    def _drop_client(self, request):
+        with self._client_lock:
+            self._clients.discard(request)
+
+    def close_clients(self):
+        with self._client_lock:
+            clients = list(self._clients)
+            self._clients.clear()
+        for client in clients:
+            _close_socket(client)
+
+    def server_close(self):
+        self.close_clients()
+        super().server_close()
+
+
+def _close_socket(sock):
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
+
+
 class Handler(SimpleHTTPRequestHandler):
     """Serve the Misio folder and report each request to the launcher."""
 
@@ -53,6 +100,8 @@ class Handler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def log_message(self, fmt, *args):
+        if getattr(self.server, "released", False):
+            return
         code = args[1] if len(args) > 1 else "-"
         level = logging.INFO
         try:
@@ -64,6 +113,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.server.launcher.note_request()
 
     def log_error(self, fmt, *args):
+        if getattr(self.server, "released", False):
+            return
         self.server.launcher.log(logging.ERROR, fmt % args)
 
 
@@ -85,6 +136,7 @@ class Launcher(tk.Tk):
         self.logger.setLevel(logging.DEBUG)
         self.logger.propagate = False
         self.events = queue.Queue()
+        self._release_lock = threading.Lock()
 
         self._build()
         self._open_logs()
@@ -260,7 +312,7 @@ class Launcher(tk.Tk):
             return
         port = self._choose_port()
         try:
-            self.httpd = ThreadingHTTPServer((HOST, port), Handler)
+            self.httpd = MisioServer((HOST, port), Handler)
         except OSError as exc:
             self.httpd = None
             self._set_state("Error", BAD)
@@ -301,6 +353,10 @@ class Launcher(tk.Tk):
     def _serve(self):
         try:
             self.httpd.serve_forever(poll_interval=0.2)
+        except OSError:
+            if self.httpd is None or not self.httpd.released:
+                self.log(logging.ERROR, "Server thread crashed:\n%s", traceback.format_exc())
+                self.events.put(("state", "crashed"))
         except Exception:
             self.log(logging.ERROR, "Server thread crashed:\n%s", traceback.format_exc())
             self.events.put(("state", "crashed"))
@@ -329,15 +385,47 @@ class Launcher(tk.Tk):
         if httpd is None:
             return
         self.log(logging.INFO, "Stopping server")
-        threading.Thread(target=self._shutdown, args=(httpd,), name="misio-stop", daemon=True).start()
+        threading.Thread(
+            target=self._shutdown,
+            args=(httpd, self.thread),
+            name="misio-stop",
+            daemon=True,
+        ).start()
 
-    def _shutdown(self, httpd):
+    def _shutdown(self, httpd, thread):
         try:
-            httpd.shutdown()
-            httpd.server_close()
+            self._release_server(httpd)
+            if thread is not None:
+                thread.join(timeout=2)
         except Exception:
             self.log(logging.ERROR, "Stop failed:\n%s", traceback.format_exc())
         self.events.put(("state", "stopped"))
+
+    def _release_server(self, httpd):
+        """Stop accepting, close open connections, and free the listen port."""
+        if httpd is None:
+            return
+        with self._release_lock:
+            if httpd.released:
+                return
+            httpd.released = True
+            stopper = threading.Thread(target=self._stop_accepting, args=(httpd,), name="misio-shutdown", daemon=True)
+            try:
+                httpd.close_clients()
+                stopper.start()
+                stopper.join(timeout=2)
+            finally:
+                try:
+                    httpd.server_close()
+                except OSError:
+                    pass
+                stopper.join(timeout=1)
+
+    def _stop_accepting(self, httpd):
+        try:
+            httpd.shutdown()
+        except Exception:
+            self.logger.exception("Could not shut down the accept loop")
 
     def _mark_stopped(self):
         self.httpd = None
@@ -381,14 +469,25 @@ class Launcher(tk.Tk):
 
     def _on_close(self):
         httpd = self.httpd
+        thread = self.thread
         self.log(logging.INFO, "Launcher closing")
-        if httpd is not None:
-            try:
-                httpd.shutdown()
-                httpd.server_close()
-            except Exception:
-                self.logger.exception("Could not stop the server while closing")
+        try:
+            self._release_server(httpd)
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=2)
+        except Exception:
+            self.logger.exception("Could not stop the server while closing")
+        self._close_logs()
         self.destroy()
+
+    def _close_logs(self):
+        for handler in list(self.logger.handlers):
+            try:
+                handler.flush()
+                handler.close()
+            except OSError:
+                pass
+            self.logger.removeHandler(handler)
 
 
 def main():

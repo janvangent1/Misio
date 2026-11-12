@@ -278,6 +278,14 @@ function drawAirSymbol(parent, shape, paint) {
       g.line(28, 12, 28, 28);
       g.line(28, 20, 38, 20);
       break;
+    case "air-vibrator":
+      g.line(2, 20, 8, 20);
+      g.circle(17, 20, 9, false);
+      g.line(12, 20, 22, 20);
+      g.line(22, 15, 22, 25);
+      g.poly([[27, 11], [31, 15], [27, 20], [31, 25], [27, 29]], false);
+      g.poly([[32, 11], [36, 15], [32, 20], [36, 25], [32, 29]], false);
+      break;
     default:
       g.rect(8, 8, 24, 24, 2);
   }
@@ -411,6 +419,7 @@ window.MisioAir = {
     schemeMaster("air", "air-motor", "Air motor"),
     schemeMaster("air", "air-silencer", "Silencer"),
     schemeMaster("air", "air-coupling", "Coupling"),
+    schemeMaster("air", "air-vibrator", "Pneumatic vibrator"),
   ],
   draw: drawAirSymbol,
   iconBox: schemeIconBox,

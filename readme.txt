@@ -66,7 +66,11 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
     Wheel, + and -      zoom
     Fit                 fit the whole diagram in the window
     Arrange             lay the flowchart out from top to bottom
-                        (Ctrl+Shift+L)
+                        (Ctrl+Shift+L). Swimlanes stay where they are.
+    Swimlane            add a process lane (L). Click again for the next
+                        row. Shift-click, or Shift+L, adds a column.
+                        Double-click the name to rename it. Steps inside
+                        the lane move with it.
     Legend              add a key of every symbol used on the page,
                         in the bottom right corner. Click it again
                         to refresh the key.
@@ -102,7 +106,7 @@ text under a symbol is its name; double-click to rename a device.
 Vehicle holds a car or motorcycle wiring set: battery, ground, fuse,
 relay, switch, lamp, horn, motor, alternator, coil, ECU, sensor, spark
 plug, and connector. Pneumatics holds a shop-air set, from compressor
-and valves to cylinder and silencer. Plumbing holds the water side:
+and valves to cylinder, silencer, and vibrator. Plumbing holds the water side:
 pump, valves, tank, boiler, radiator, tap, meter, and heat exchanger.
 A wire between two of these symbols is a plain line. Double-click a
 symbol to add a rating.
@@ -138,5 +142,6 @@ A saved diagram is JSON:
     app: "Misio"
     title: "Misio"
     version: 1
-    shapes: id, type, x, y, w, h, text
+    shapes: id, type, x, y, w, h, text. A swimlane may also
+            set axis to "row" or "column".
     connectors: id, fromId, fromPort, toId, toPort, text, ends

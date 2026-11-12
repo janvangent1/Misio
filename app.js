@@ -36,6 +36,7 @@ const MASTERS = FLOW_MASTERS.concat(
 );
 const TYPES = new Set(MASTERS.map((master) => master.type));
 TYPES.add("legend");
+TYPES.add("lane");
 const LEGEND_PAD = 14;
 const LEGEND_ICON = 28;
 const LEGEND_ROW = 36;
@@ -145,7 +146,7 @@ function cloneDoc(doc) {
 }
 
 function shapeRecord(shape) {
-  return {
+  const record = {
     id: String(shape.id),
     type: shape.type,
     x: shape.x,
@@ -154,6 +155,8 @@ function shapeRecord(shape) {
     h: shape.h,
     text: String(shape.text ?? ""),
   };
+  if (shape.type === "lane") record.axis = laneAxis(shape);
+  return record;
 }
 
 function connectorRecord(connector) {
@@ -552,6 +555,71 @@ function drawLegend(parent, shape, paint) {
   });
 }
 
+function laneAxis(shape) {
+  return shape && shape.axis === "column" ? "column" : "row";
+}
+
+function laneMin(shape) {
+  return laneAxis(shape) === "column" ? { w: 160, h: 220 } : { w: 320, h: 140 };
+}
+
+function laneHead(shape) {
+  return laneAxis(shape) === "column"
+    ? Math.min(48, shape.h / 3)
+    : Math.min(112, shape.w / 3);
+}
+
+function shapesInsideLane(lane) {
+  return state.doc.shapes.filter((shape) => {
+    if (shape.id === lane.id || shape.type === "lane" || shape.type === "legend") return false;
+    const cx = shape.x + shape.w / 2;
+    const cy = shape.y + shape.h / 2;
+    return cx >= lane.x && cx <= lane.x + lane.w && cy >= lane.y && cy <= lane.y + lane.h;
+  });
+}
+
+function drawLane(parent, shape, paint) {
+  const head = laneHead(shape);
+  const column = laneAxis(shape) === "column";
+  el("rect", {
+    x: shape.x,
+    y: shape.y,
+    width: shape.w,
+    height: shape.h,
+    fill: "#f4f7fb",
+    stroke: paint.stroke,
+    "stroke-width": paint.sw,
+  }, parent);
+  el("rect", {
+    x: shape.x,
+    y: shape.y,
+    width: column ? shape.w : head,
+    height: column ? head : shape.h,
+    fill: paint.selected ? "#d6e4f2" : "#e6eef6",
+    stroke: paint.stroke,
+    "stroke-width": paint.sw,
+  }, parent);
+  const maxWidth = Math.max(24, (column ? shape.w : head) - 16);
+  const lines = wrapLines(shape.text || ui("lane"), maxWidth, 14).slice(0, 4);
+  const lineHeight = 18;
+  const cx = column ? shape.x + shape.w / 2 : shape.x + head / 2;
+  const cy = column ? shape.y + head / 2 : shape.y + shape.h / 2;
+  const text = el("text", {
+    x: cx,
+    y: cy - ((lines.length - 1) * lineHeight) / 2,
+    "text-anchor": "middle",
+    "dominant-baseline": "middle",
+    "font-family": "Segoe UI, Helvetica Neue, sans-serif",
+    "font-size": 14,
+    "font-weight": 600,
+    fill: "#1c1915",
+  }, parent);
+  lines.forEach((line, index) => {
+    const tspan = el("tspan", { x: cx, dy: index === 0 ? 0 : lineHeight }, text);
+    tspan.textContent = line;
+  });
+}
+
 function drawOutline(parent, shape, paint) {
   const { x, y, w, h } = shape;
   const right = x + w;
@@ -566,6 +634,10 @@ function drawOutline(parent, shape, paint) {
   };
   if (shape.type === "legend") {
     drawLegend(parent, shape, paint);
+    return;
+  }
+  if (shape.type === "lane") {
+    drawLane(parent, shape, paint);
     return;
   }
   if (shape.type === "bus") {
@@ -704,7 +776,7 @@ function drawDecisionSides(parent, shape) {
 function drawShapeBody(parent, shape) {
   const paint = shapePaint(shape);
   drawOutline(parent, shape, paint);
-  drawLabel(parent, shape);
+  if (shape.type !== "lane") drawLabel(parent, shape);
   if (shape.type === "decision") drawDecisionSides(parent, shape);
   const label = shape.type === "legend"
     ? ui("legend")
@@ -816,7 +888,7 @@ function drawConnector(parent, connector, options = {}) {
 }
 
 function portsVisible(shape) {
-  if (shape.type === "legend") return false;
+  if (shape.type === "legend" || shape.type === "lane") return false;
   if (state.tool === "connect") return true;
   if (state.gesture && state.gesture.type === "connect") return true;
   if (state.selection && state.selection.kind === "shape" && selectedShapeIds().length === 1 && state.selection.id === shape.id) return true;
@@ -882,8 +954,14 @@ function contentBounds() {
 }
 
 function drawDiagram(parent, interactive) {
+  for (const shape of state.doc.shapes) {
+    if (shape.type !== "lane") continue;
+    const group = el("g", { "data-shape-id": shape.id, role: "group", "aria-label": shape.text || shape.type }, parent);
+    drawShapeBody(group, shape);
+  }
   for (const connector of state.doc.connectors) drawConnector(parent, connector);
   for (const shape of state.doc.shapes) {
+    if (shape.type === "lane") continue;
     const group = el("g", { "data-shape-id": shape.id, role: "group", "aria-label": shape.text || shape.type }, parent);
     drawShapeBody(group, shape);
   }
@@ -970,7 +1048,14 @@ function render() {
 
 function onPortPointerDown(event) {
   if (event.button !== 0) return;
+  event.preventDefault();
   event.stopPropagation();
+  const shapeTarget = { kind: "shape", id: event.currentTarget.dataset.shapeId };
+  if (wantsTextEdit(event, shapeTarget)) {
+    editOnUp = shapeTarget;
+    state.gesture = null;
+    return;
+  }
   const fromId = event.currentTarget.dataset.shapeId;
   const fromPort = event.currentTarget.dataset.port;
   state.gesture = {
@@ -981,13 +1066,9 @@ function onPortPointerDown(event) {
     before: serialize(),
   };
   state.selection = { kind: "shape", id: fromId };
-}
-
-function onPortDragStart(event) {
-  nativePortDrag = true;
-  const button = event.currentTarget;
-  event.dataTransfer.setData("application/x-misio-port", `${button.dataset.shapeId}:${button.dataset.port}`);
-  event.dataTransfer.effectAllowed = "copy";
+  wrap.setPointerCapture(event.pointerId);
+  wrap.style.cursor = "crosshair";
+  render();
 }
 
 function syncPortButtons() {
@@ -1006,12 +1087,12 @@ function syncPortButtons() {
       node = document.createElement("button");
       node.type = "button";
       node.className = "port-hit";
-      node.draggable = true;
+      node.draggable = false;
       node.dataset.key = key;
       node.dataset.shapeId = info.shape.id;
       node.dataset.port = info.port;
       node.addEventListener("pointerdown", onPortPointerDown);
-      node.addEventListener("dragstart", onPortDragStart);
+      node.addEventListener("dragstart", (dragEvent) => dragEvent.preventDefault());
       wrap.appendChild(node);
     }
     const label = ui("port", { name: info.shape.text || labelFor(info.shape.type), side: ui(info.port) });
@@ -1116,6 +1197,7 @@ function hitPort(point, options = {}) {
   const reach = 10 / state.view.scale;
   for (let index = state.doc.shapes.length - 1; index >= 0; index -= 1) {
     const shape = state.doc.shapes[index];
+    if (shape.type === "lane") continue;
     if (options.excludeId && shape.id === options.excludeId) continue;
     const allowed = options.ignoreVisibility || state.tool === "connect" || portsVisible(shape) || hitShapeBody(shape, point);
     if (!allowed) continue;
@@ -1133,14 +1215,18 @@ function portTarget(point, excludeId) {
   const direct = hitPort(point, { excludeId, ignoreVisibility: true });
   if (direct) return direct;
   const shape = hitShape(point);
-  if (!shape || shape.id === excludeId) return null;
+  if (!shape || shape.id === excludeId || shape.type === "lane") return null;
   return { id: shape.id, port: nearestPort(shape, point) };
 }
 
 function hitShape(point) {
-  for (let index = state.doc.shapes.length - 1; index >= 0; index -= 1) {
-    const shape = state.doc.shapes[index];
-    if (hitShapeBody(shape, point)) return shape;
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let index = state.doc.shapes.length - 1; index >= 0; index -= 1) {
+      const shape = state.doc.shapes[index];
+      const lane = shape.type === "lane";
+      if (pass === 0 ? lane : !lane) continue;
+      if (hitShapeBody(shape, point)) return shape;
+    }
   }
   return null;
 }
@@ -1160,6 +1246,7 @@ function hitConnector(point) {
 
 function cursorFor(point) {
   if (state.spaceDown) return "grab";
+  if (state.tool === "connect" || (state.gesture && state.gesture.type === "connect")) return "crosshair";
   const handle = hitHandle(point);
   if (handle === "nw" || handle === "se") return "nwse-resize";
   if (handle === "ne" || handle === "sw") return "nesw-resize";
@@ -1171,6 +1258,7 @@ function cursorFor(point) {
 
 function setTool(tool) {
   state.tool = tool;
+  wrap.style.cursor = tool === "connect" || tool === "bus" ? "crosshair" : "";
   render();
 }
 
@@ -1208,13 +1296,14 @@ function resizeShape(shape, corner, point) {
     y = shape.origin.y;
     edgeY = bottom;
   }
-  if (edgeX - x < MIN_SIZE) {
-    if (corner.includes("w")) x = edgeX - MIN_SIZE;
-    else edgeX = x + MIN_SIZE;
+  const min = shape.type === "lane" ? laneMin(shape) : { w: MIN_SIZE, h: MIN_SIZE };
+  if (edgeX - x < min.w) {
+    if (corner.includes("w")) x = edgeX - min.w;
+    else edgeX = x + min.w;
   }
-  if (edgeY - y < MIN_SIZE) {
-    if (corner.includes("n")) y = edgeY - MIN_SIZE;
-    else edgeY = y + MIN_SIZE;
+  if (edgeY - y < min.h) {
+    if (corner.includes("n")) y = edgeY - min.h;
+    else edgeY = y + min.h;
   }
   shape.x = x;
   shape.y = y;
@@ -1591,7 +1680,8 @@ function arrangeDiagram() {
   if (state.gesture) return;
   if (state.editor) closeEditor(true);
   const legends = state.doc.shapes.filter((shape) => shape.type === "legend");
-  const body = state.doc.shapes.filter((shape) => shape.type !== "legend");
+  const lanes = state.doc.shapes.filter((shape) => shape.type === "lane");
+  const body = state.doc.shapes.filter((shape) => shape.type !== "legend" && shape.type !== "lane");
   if (!body.length) {
     setStatus(ui("nothing-to-arrange"));
     return;
@@ -1599,11 +1689,68 @@ function arrangeDiagram() {
   const before = serialize();
   state.doc.shapes = body;
   layoutDiagram(state.doc);
+  for (const lane of lanes) state.doc.shapes.unshift(lane);
   for (const legend of legends) state.doc.shapes.push(legend);
   if (legends[0]) positionLegend(legends[0], body);
   commitChange(before);
   fitView();
   setStatus(ui("arranged"));
+}
+
+function addLane(axis) {
+  const column = axis === "column";
+  const before = serialize();
+  const same = state.doc.shapes.filter((shape) => shape.type === "lane" && laneAxis(shape) === (column ? "column" : "row"));
+  const other = state.doc.shapes.filter((shape) => shape.type === "lane" && laneAxis(shape) !== (column ? "column" : "row"));
+  let x = 40;
+  let y = 40;
+  let w = column ? 220 : 760;
+  let h = column ? 520 : 180;
+  if (same.length) {
+    if (column) {
+      const right = same.reduce((best, shape) => (shape.x + shape.w > best.x + best.w ? shape : best));
+      x = right.x + right.w;
+      y = Math.min(...same.map((shape) => shape.y));
+      w = right.w;
+      h = Math.max(...same.map((shape) => shape.y + shape.h)) - y;
+    } else {
+      const bottom = same.reduce((best, shape) => (shape.y + shape.h > best.y + best.h ? shape : best));
+      x = Math.min(...same.map((shape) => shape.x));
+      y = bottom.y + bottom.h;
+      w = Math.max(...same.map((shape) => shape.x + shape.w)) - x;
+      h = bottom.h;
+    }
+  } else if (other.length) {
+    const left = Math.min(...other.map((shape) => shape.x));
+    const top = Math.min(...other.map((shape) => shape.y));
+    const right = Math.max(...other.map((shape) => shape.x + shape.w));
+    const bottom = Math.max(...other.map((shape) => shape.y + shape.h));
+    if (column) {
+      x = right;
+      y = top;
+      h = bottom - top;
+    } else {
+      x = left;
+      y = bottom;
+      w = right - left;
+    }
+  }
+  const shape = {
+    id: uid(),
+    type: "lane",
+    x,
+    y,
+    w,
+    h,
+    text: ui(column ? "column-name" : "lane-name", { n: same.length + 1 }),
+    axis: column ? "column" : "row",
+  };
+  state.doc.shapes.unshift(shape);
+  selectShapes([shape.id]);
+  commitChange(before);
+  hideConfirm();
+  setStatus(ui(column ? "lane-added-column" : "lane-added-row"));
+  render();
 }
 
 function fitView() {
@@ -1627,8 +1774,13 @@ function fitView() {
 }
 
 function nudge(dx, dy) {
-  const ids = selectedShapeIds();
-  if (!ids.length) return;
+  const ids = new Set(selectedShapeIds());
+  if (!ids.size) return;
+  for (const id of [...ids]) {
+    const shape = getShape(id);
+    if (!shape || shape.type !== "lane") continue;
+    for (const inner of shapesInsideLane(shape)) ids.add(inner.id);
+  }
   const before = serialize();
   for (const id of ids) {
     const shape = getShape(id);
@@ -1664,6 +1816,19 @@ function positionEditor() {
       return;
     }
     const origin = worldToWrap({ x: shape.x, y: shape.y });
+    if (shape.type === "lane") {
+      const head = laneHead(shape);
+      const column = laneAxis(shape) === "column";
+      const width = Math.max(48, (column ? shape.w : head) * state.view.scale - 12);
+      const height = Math.max(28, Math.min((column ? head : shape.h) * state.view.scale - 8, 80));
+      textarea.style.left = `${origin.x + 6}px`;
+      textarea.style.top = column
+        ? `${origin.y + 4}px`
+        : `${origin.y + (shape.h * state.view.scale - height) / 2}px`;
+      textarea.style.width = `${width}px`;
+      textarea.style.height = `${height}px`;
+      return;
+    }
     const width = Math.max(48, shape.w * state.view.scale - 16);
     const height = Math.max(28, Math.min(shape.h * state.view.scale - 8, 80));
     textarea.style.left = `${origin.x + 8 * state.view.scale}px`;
@@ -1732,7 +1897,7 @@ function clearDoc() {
 function sanitizeShape(raw) {
   if (!raw || !TYPES.has(raw.type)) return null;
   const master = MASTERS.find((item) => item.type === raw.type);
-  if (!master && raw.type !== "legend") return null;
+  if (!master && raw.type !== "legend" && raw.type !== "lane") return null;
   const shape = {
     id: raw.id == null || raw.id === "" ? uid() : String(raw.id),
     type: raw.type,
@@ -1745,6 +1910,12 @@ function sanitizeShape(raw) {
   if (![shape.x, shape.y, shape.w, shape.h].every(Number.isFinite)) return null;
   shape.w = Math.max(MIN_SIZE, shape.w);
   shape.h = Math.max(MIN_SIZE, shape.h);
+  if (shape.type === "lane") {
+    shape.axis = raw.axis === "column" ? "column" : "row";
+    const min = laneMin(shape);
+    shape.w = Math.max(min.w, shape.w);
+    shape.h = Math.max(min.h, shape.h);
+  }
   bumpId(shape.id);
   return shape;
 }
@@ -1850,6 +2021,30 @@ function exportSvg() {
   setStatus(ui("exported-svg"));
 }
 
+function editTargetAt(world) {
+  const shape = hitShape(world);
+  if (shape && shape.type !== "legend") return { kind: "shape", id: shape.id };
+  const connector = hitConnector(world);
+  if (connector) return { kind: "connector", id: connector.id };
+  return null;
+}
+
+function wantsTextEdit(event, target) {
+  if (!target) {
+    lastEditPress = null;
+    return false;
+  }
+  const now = performance.now();
+  const repeat = event.detail >= 2 || Boolean(
+    lastEditPress
+    && now - lastEditPress.time < 500
+    && lastEditPress.kind === target.kind
+    && lastEditPress.id === target.id
+  );
+  lastEditPress = { kind: target.kind, id: target.id, time: now };
+  return repeat;
+}
+
 function onPointerDown(event) {
   if (event.target === textarea) return;
   if (event.button === 1 || (event.button === 0 && state.spaceDown)) {
@@ -1860,12 +2055,31 @@ function onPointerDown(event) {
     return;
   }
   if (event.button !== 0) return;
-  if (state.editor) closeEditor(true);
   const world = clientToWorld(event.clientX, event.clientY);
+  const target = editTargetAt(world);
+  if (wantsTextEdit(event, target)) {
+    editOnUp = target;
+    state.gesture = null;
+    event.preventDefault();
+    return;
+  }
+  if (state.editor) closeEditor(true);
   if (state.tool === "bus") {
     state.gesture = { type: "bus", sx: snap(world.x), sy: snap(world.y), pointer: world, before: serialize() };
     wrap.setPointerCapture(event.pointerId);
     render();
+    return;
+  }
+  if (state.tool === "connect") {
+    const shape = hitShape(world);
+    const port = hitPort(world) || (shape && shape.type !== "lane" ? { id: shape.id, port: nearestPort(shape, world) } : null);
+    if (port) {
+      state.gesture = { type: "connect", fromId: port.id, fromPort: port.port, pointer: world, before: serialize() };
+      state.selection = { kind: "shape", id: port.id };
+      wrap.setPointerCapture(event.pointerId);
+      wrap.style.cursor = "crosshair";
+      render();
+    }
     return;
   }
   const handle = hitHandle(world);
@@ -1877,20 +2091,12 @@ function onPointerDown(event) {
     return;
   }
   const port = hitPort(world);
-  if (port && (state.tool === "connect" || state.tool === "select")) {
+  if (port && state.tool === "select") {
     state.gesture = { type: "connect", fromId: port.id, fromPort: port.port, pointer: world, before: serialize() };
     state.selection = { kind: "shape", id: port.id };
     wrap.setPointerCapture(event.pointerId);
     render();
     return;
-  }
-  if (state.tool === "connect") {
-    const shape = hitShape(world);
-    if (shape) {
-      state.selection = { kind: "shape", id: shape.id };
-      render();
-      return;
-    }
   }
   if (state.tool === "select") {
     const shape = hitShape(world);
@@ -1909,18 +2115,27 @@ function onPointerDown(event) {
         selectShapes(ids);
       }
       const origins = {};
+      const moving = new Set(selectedShapeIds());
       for (const id of selectedShapeIds()) {
         const item = getShape(id);
         origins[id] = { x: item.x, y: item.y };
+        if (item.type !== "lane") continue;
+        for (const inner of shapesInsideLane(item)) {
+          if (moving.has(inner.id)) continue;
+          moving.add(inner.id);
+          origins[inner.id] = { x: inner.x, y: inner.y };
+        }
       }
       state.gesture = {
         type: "move",
         id: shape.id,
         origins,
         start: { x: world.x, y: world.y },
+        pointer: { x: event.clientX, y: event.clientY },
+        pointerId: event.pointerId,
         before: serialize(),
+        armed: false,
       };
-      wrap.setPointerCapture(event.pointerId);
       render();
       return;
     }
@@ -1965,6 +2180,13 @@ function onPointerMove(event) {
     return;
   }
   if (gesture.type === "move") {
+    if (!gesture.armed) {
+      const dx = event.clientX - gesture.pointer.x;
+      const dy = event.clientY - gesture.pointer.y;
+      if (dx * dx + dy * dy < 16) return;
+      gesture.armed = true;
+      wrap.setPointerCapture(gesture.pointerId);
+    }
     const dx = snap(world.x - gesture.start.x);
     const dy = snap(world.y - gesture.start.y);
     for (const [id, origin] of Object.entries(gesture.origins)) {
@@ -2055,7 +2277,7 @@ function tapOnBus(bus, point, fromId) {
 }
 
 function wireDroppedShape(shape, point) {
-  if (shape.type === "bus" || shape.type === "arei-node" || shape.type === "legend") return;
+  if (shape.type === "bus" || shape.type === "arei-node" || shape.type === "legend" || shape.type === "lane") return;
   const bus = busAt(point);
   if (!bus) return;
   const cy = bus.y + bus.h / 2;
@@ -2138,6 +2360,14 @@ function finishGesture() {
 }
 
 function onPointerUp(event) {
+  if (editOnUp) {
+    const target = editOnUp;
+    editOnUp = null;
+    state.gesture = null;
+    if (wrap.hasPointerCapture(event.pointerId)) wrap.releasePointerCapture(event.pointerId);
+    openEditor(target.kind, target.id);
+    return;
+  }
   if (state.gesture) finishGesture();
   if (wrap.hasPointerCapture(event.pointerId)) wrap.releasePointerCapture(event.pointerId);
 }
@@ -2150,6 +2380,8 @@ function onWheel(event) {
 
 let nativeStencilDrag = false;
 let nativePortDrag = false;
+let editOnUp = null;
+let lastEditPress = null;
 
 function startStencilDrag(master, event) {
   nativeStencilDrag = false;
@@ -2268,6 +2500,7 @@ function stampCopies(records, dx, dy) {
       h: raw.h,
       text: raw.text,
     };
+    if (raw.type === "lane") shape.axis = raw.axis === "column" ? "column" : "row";
     map.set(String(raw.id), shape.id);
     state.doc.shapes.push(shape);
     ids.push(shape.id);
@@ -2590,6 +2823,12 @@ function onKeyDown(event) {
     setTool("bus");
     return;
   }
+  if (event.key === "l" || event.key === "L") {
+    if (event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    addLane(event.shiftKey ? "column" : "row");
+    return;
+  }
   const step = GRID;
   if (event.key === "ArrowLeft") { event.preventDefault(); nudge(-step, 0); }
   else if (event.key === "ArrowRight") { event.preventDefault(); nudge(step, 0); }
@@ -2620,6 +2859,7 @@ shapeSearch.addEventListener("input", () => buildMasters());
 undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
 document.getElementById("arrange").addEventListener("click", arrangeDiagram);
+document.getElementById("lane").addEventListener("click", (event) => addLane(event.shiftKey ? "column" : "row"));
 document.getElementById("legend").addEventListener("click", addLegend);
 document.getElementById("fit").addEventListener("click", fitView);
 document.getElementById("zoom-in").addEventListener("click", () => {
@@ -2690,6 +2930,7 @@ wrap.addEventListener("pointerdown", onPointerDown);
 wrap.addEventListener("pointermove", onPointerMove);
 wrap.addEventListener("pointerup", onPointerUp);
 wrap.addEventListener("pointercancel", (event) => {
+  editOnUp = null;
   const gesture = state.gesture;
   if (gesture && (gesture.type === "move" || gesture.type === "resize")) {
     const shape = getShape(gesture.id);

@@ -327,6 +327,7 @@ button[aria-pressed="true"] {
   border-radius: 50%;
   border: 1.5px solid var(--accent);
   background: #fffcf7;
+  cursor: crosshair;
 }
 
 .port-hit.is-hot {
