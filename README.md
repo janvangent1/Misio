@@ -93,6 +93,13 @@ Network diagrams use the folded Network group: servers, racks, switches,
 routers, firewalls, access points, clouds, and the other common nodes. The
 text under a symbol is its name; double-click to rename a device.
 
+Vehicle holds a car or motorcycle wiring set: battery, ground, fuse, relay,
+switch, lamp, horn, motor, alternator, coil, ECU, sensor, spark plug, and
+connector. Pneumatics holds a shop-air set, from compressor and valves to
+cylinder and silencer. Plumbing holds the water side: pump, valves, tank,
+boiler, radiator, tap, meter, and heat exchanger. A wire between two of
+these symbols is a plain line. Double-click a symbol to add a rating.
+
 ## Example
 
 `eendraadschema.json` is a Belgian single-line diagram. Use Open, then Fit.
@@ -108,6 +115,7 @@ Leave Arrange alone on that file: Arrange lays a page out as a flowchart.
 | `lang.js` | English, Dutch, and French shape names |
 | `arei.js` | Belgian AREI single-line symbols |
 | `network.js` | network diagram symbols |
+| `schematic.js` | vehicle, pneumatic, and plumbing symbols |
 | `misio.py` | the launcher |
 | `favicon.svg`, `favicon.ico` | the browser icon |
 | `eendraadschema.json` | the example single-line diagram |

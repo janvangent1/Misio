@@ -27,7 +27,13 @@ const FLOW_MASTERS = [
   { type: "text", name: "Text", w: 140, h: 48, text: "Text", category: "standard" },
   { type: "bus", name: "Bus", w: 360, h: 40, text: "", category: "arei-boards" },
 ];
-const MASTERS = FLOW_MASTERS.concat(window.MisioArei.masters, window.MisioNetwork.masters);
+const MASTERS = FLOW_MASTERS.concat(
+  window.MisioArei.masters,
+  window.MisioNetwork.masters,
+  window.MisioVehicle.masters,
+  window.MisioAir.masters,
+  window.MisioWater.masters,
+);
 const TYPES = new Set(MASTERS.map((master) => master.type));
 TYPES.add("legend");
 const LEGEND_PAD = 14;
@@ -101,7 +107,12 @@ function labelFor(key) {
   if (String(key).startsWith("group:")) {
     const id = key.slice(6);
     if (id === "arei") return "AREI";
-    const categories = window.MisioArei.categories.concat(window.MisioNetwork.categories);
+    const categories = window.MisioArei.categories.concat(
+      window.MisioNetwork.categories,
+      window.MisioVehicle.categories,
+      window.MisioAir.categories,
+      window.MisioWater.categories,
+    );
     const category = categories.find((item) => item.id === id);
     return category ? category.name : id;
   }
@@ -398,8 +409,12 @@ function labelLayout(shape) {
 }
 
 function symbolPack(type) {
-  if (String(type).startsWith("arei-")) return window.MisioArei;
-  if (String(type).startsWith("net-")) return window.MisioNetwork;
+  const id = String(type);
+  if (id.startsWith("arei-")) return window.MisioArei;
+  if (id.startsWith("net-")) return window.MisioNetwork;
+  if (id.startsWith("veh-")) return window.MisioVehicle;
+  if (id.startsWith("air-")) return window.MisioAir;
+  if (id.startsWith("h2o-")) return window.MisioWater;
   return null;
 }
 
@@ -2480,12 +2495,14 @@ function buildMasters() {
     if (query) arei.open = true;
     mastersEl.appendChild(arei);
   }
-  for (const category of window.MisioNetwork.categories) {
-    const nodes = mastersIn(category.id, query);
-    if (!nodes.length) continue;
-    const group = symbolGroup(category.name, nodes, false, category.id);
-    if (query) group.open = true;
-    mastersEl.appendChild(group);
+  for (const pack of [window.MisioNetwork, window.MisioVehicle, window.MisioAir, window.MisioWater]) {
+    for (const category of pack.categories) {
+      const nodes = mastersIn(category.id, query);
+      if (!nodes.length) continue;
+      const group = symbolGroup(category.name, nodes, false, category.id);
+      if (query) group.open = true;
+      mastersEl.appendChild(group);
+    }
   }
   if (!mastersEl.children.length) {
     const empty = document.createElement("p");
