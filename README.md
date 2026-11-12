@@ -1,9 +1,9 @@
 # Misio
 
-Minimalistic version of Visio.
+A small flowchart editor.
 
-Misio is a small flowchart editor that runs in the browser. It is meant for the
-everyday drawing work of Visio: shapes, connectors, labels, and a tidy page.
+Misio is a small flowchart editor that runs in the browser. It draws
+shapes, connectors, and labels on a tidy page.
 It does not open .vsdx files, and it does not need Visio installed.
 
 ![Misio with a Belgian single-line diagram](screenshot.png)

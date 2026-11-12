@@ -1,6 +1,6 @@
 "use strict";
 
-// Network diagram symbols. The name under the icon is the label; double-click to rename a device.
+// Network diagram symbols. Most names sit under the icon. A switch keeps its name inside the chassis.
 
 function netIconBox(shape) {
   const text = String(shape.text || "").trim();
@@ -110,23 +110,46 @@ function jackCount(type) {
   return 0;
 }
 
-function drawJackRow(parent, shape, paint, count) {
+function jackFrame(shape) {
   const inset = 0.06;
-  const top = shape.y + 8;
-  const height = Math.max(26, Math.min(shape.h * 0.5, 46));
-  const left = shape.x + shape.w * inset;
-  const width = shape.w * (1 - inset * 2);
+  const height = Math.max(28, Math.min(shape.h * 0.55, 48));
+  return {
+    x: shape.x + shape.w * inset,
+    y: shape.y + 6,
+    w: shape.w * (1 - inset * 2),
+    h: height,
+  };
+}
+
+function jackCaptionBox(shape) {
+  const frame = jackFrame(shape);
+  const jackH = Math.min(10, frame.h * 0.38);
+  const pad = 8;
+  return {
+    x: frame.x + pad,
+    y: frame.y + 2,
+    w: Math.max(24, frame.w - pad * 2),
+    h: Math.max(14, frame.h - jackH - 8),
+  };
+}
+
+function netCaptionBox(shape) {
+  return jackCount(shape.type) ? jackCaptionBox(shape) : null;
+}
+
+function drawJackRow(parent, shape, paint, count) {
+  const frame = jackFrame(shape);
   el("rect", {
-    x: left, y: top, width, height, rx: 4,
+    x: frame.x, y: frame.y, width: frame.w, height: frame.h, rx: 4,
     fill: paint.fill, stroke: paint.stroke, "stroke-width": paint.sw,
   }, parent);
-  const jackW = Math.min(8, (width / count) * 0.46);
-  const jackH = Math.min(10, height * 0.38);
+  const jackW = Math.min(8, (frame.w / count) * 0.46);
+  const jackH = Math.min(10, frame.h * 0.38);
   for (let i = 0; i < count; i += 1) {
-    const cx = left + width * (i + 0.5) / count;
+    const cx = frame.x + frame.w * (i + 0.5) / count;
     el("rect", {
       x: cx - jackW / 2,
-      y: top + height - jackH - 4,
+      y: frame.y + frame.h - jackH - 4,
       width: jackW,
       height: jackH,
       rx: 1,
@@ -135,7 +158,7 @@ function drawJackRow(parent, shape, paint, count) {
       "stroke-width": paint.sw,
     }, parent);
     el("line", {
-      x1: cx, y1: top + height - 4, x2: cx, y2: shape.y + shape.h,
+      x1: cx, y1: frame.y + frame.h - 4, x2: cx, y2: shape.y + shape.h,
       stroke: paint.stroke, "stroke-width": paint.sw, "stroke-linecap": "round",
     }, parent);
   }
@@ -344,6 +367,7 @@ window.MisioNetwork = {
   ],
   draw: drawNetworkSymbol,
   iconBox: netIconBox,
+  captionBox: netCaptionBox,
   ports: {
     "net-switch-4": rowPorts(4),
     "net-switch": rowPorts(8),

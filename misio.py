@@ -153,7 +153,7 @@ class Launcher(tk.Tk):
         tk.Label(brand, text="Misio", bg=PANEL, fg=INK, font=("Segoe UI", 18, "bold")).pack(anchor="w")
         tk.Label(
             brand,
-            text="Minimalistic version of Visio",
+            text="A small flowchart editor",
             bg=PANEL,
             fg=MUTED,
             font=("Segoe UI", 10),

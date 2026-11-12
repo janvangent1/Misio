@@ -495,16 +495,26 @@ function symbolPack(type) {
 function drawAreiLabel(parent, shape) {
   const text = String(shape.text || "").trim();
   if (!text) return;
-  const icon = symbolPack(shape.type).iconBox(shape);
-  const maxWidth = Math.max(24, shape.w - 8);
-  const size = 12;
-  const lines = wrapLines(text, maxWidth, size).slice(0, 3);
-  const lineHeight = size * 1.25;
-  const cx = shape.x + shape.w / 2;
+  const pack = symbolPack(shape.type);
+  const caption = pack.captionBox && pack.captionBox(shape);
+  const icon = caption ? null : pack.iconBox(shape);
+  const maxWidth = caption ? caption.w : Math.max(24, shape.w - 8);
+  let size = caption ? 13 : 12;
+  let lines = wrapLines(text, maxWidth, size).slice(0, caption ? 2 : 3);
+  while (caption && size > 10 && lines.length * size * 1.2 > caption.h) {
+    size -= 1;
+    lines = wrapLines(text, maxWidth, size).slice(0, 2);
+  }
+  const lineHeight = size * (caption ? 1.2 : 1.25);
+  const cx = caption ? caption.x + caption.w / 2 : shape.x + shape.w / 2;
+  const anchorY = caption
+    ? caption.y + caption.h / 2
+    : icon.y + icon.h + size + 2;
   const node = el("text", {
     x: cx,
-    y: icon.y + icon.h + size + 2,
+    y: caption ? anchorY - ((lines.length - 1) * lineHeight) / 2 : anchorY,
     "text-anchor": "middle",
+    "dominant-baseline": caption ? "middle" : null,
     "font-family": "Segoe UI, Helvetica Neue, sans-serif",
     "font-size": size,
     fill: "#1c1915",

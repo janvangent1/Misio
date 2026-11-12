@@ -448,7 +448,7 @@ window.MisioLang = {
 
 window.MisioUi = {
   en: {
-    tagline: "Minimalistic version of Visio",
+    tagline: "A small flowchart editor",
     tools: "Tools",
     file: "File",
     select: "Select",
@@ -574,7 +574,7 @@ window.MisioUi = {
     "pdf-failed": "The print dialog could not open.",
   },
   nl: {
-    tagline: "Eenvoudige versie van Visio",
+    tagline: "Een eenvoudige stroomdiagram-editor",
     tools: "Gereedschap",
     file: "Bestand",
     select: "Selecteren",
@@ -700,7 +700,7 @@ window.MisioUi = {
     "pdf-failed": "Het afdrukvenster kon niet openen.",
   },
   fr: {
-    tagline: "Version minimaliste de Visio",
+    tagline: "Un petit éditeur de logigrammes",
     tools: "Outils",
     file: "Fichier",
     select: "Sélectionner",
