@@ -71,6 +71,8 @@
       <button id="new-doc" type="button" data-ui="new">New</button>
       <button id="open-doc" type="button" data-ui="open">Open</button>
       <button id="save-doc" type="button" data-ui="save">Save</button>
+      <button id="import-visio" type="button" data-ui="import-visio" data-ui-title="import-visio-title" title="Import a Visio drawing (.vsdx)">Import Visio</button>
+      <button id="export-visio" type="button" data-ui="export-visio" data-ui-title="export-visio-title" title="Export a Visio drawing (.vsdx)">Export Visio</button>
       <button id="export-svg" type="button" data-ui="export-svg">Export SVG</button>
       <button id="export-pdf" type="button" data-ui="export-pdf" data-ui-title="export-pdf-title" title="Open a one-page sheet and print it to PDF">Export PDF</button>
       <span class="sep" aria-hidden="true"></span>
@@ -80,6 +82,7 @@
         <option value="fr">Français</option>
       </select>
       <input id="file-input" type="file" accept="application/json,.json" hidden>
+      <input id="visio-input" type="file" accept=".vsdx,application/vnd.ms-visio.drawing" hidden>
     </div>
   </header>
   <div id="confirm" class="confirm" hidden>
@@ -103,6 +106,7 @@
   <script src="arei.js"></script>
   <script src="network.js"></script>
   <script src="schematic.js"></script>
+  <script src="visio.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -3,7 +3,10 @@ A small flowchart editor
 
 Misio is a small flowchart editor that runs in the browser. It draws
 shapes, connectors, and labels on a tidy page.
-It does not open .vsdx files, and it does not need Visio installed.
+It imports and exports Visio .vsdx drawings, and it does not need Visio installed.
+A drawing exported here comes back intact. A drawing made in Visio comes in
+as its shapes, text, and connectors. A Visio stencil Misio does not know
+becomes a plain box.
 
 The picture of the editor is screenshot.png. GitHub shows it in README.md.
 A reload brings back the drawing that was open.
@@ -86,6 +89,12 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
                         you wrote it. English is the default.
     Undo / Redo         Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z
     New / Open / Save   a Misio JSON file. Save is also Ctrl+S.
+    Import Visio        open a .vsdx file. A drawing exported here comes
+                        back intact. A drawing made in Visio comes in as
+                        its shapes, text, and connectors.
+    Export Visio        download a .vsdx file Visio can open. Flowchart
+                        shapes stay shapes. Other symbols are pictures,
+                        and the Misio drawing is kept inside the file.
     Export SVG          download the drawing as misio.svg
     Export PDF          open one sheet, with the title and the drawing,
                         and print it. Choose Save as PDF.
@@ -137,6 +146,7 @@ Files
     arei.js             Belgian AREI single-line symbols
     network.js          network diagram symbols
     schematic.js        vehicle, pneumatic, and plumbing symbols
+    visio.js            open and save Visio .vsdx files
     misio.py            the launcher
     favicon.svg         the browser icon
     favicon.ico         the same icon for older browsers

@@ -2184,15 +2184,174 @@ function openText(text) {
   render();
 }
 
-function download(name, text, type) {
-  lastDownload = { name, text, type };
+function download(name, body, type) {
+  const bytes = body instanceof Uint8Array ? body : null;
+  lastDownload = { name, text: bytes ? "" : String(body), type, bytes };
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([text], { type }));
+  link.href = URL.createObjectURL(new Blob([bytes || body], { type }));
   link.download = name;
   document.body.appendChild(link);
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function nearestPortName(shape, x, y) {
+  let best = shapePorts(shape)[0] || "bottom";
+  let bestDistance = Infinity;
+  for (const port of shapePorts(shape)) {
+    const point = portPoint(shape, port);
+    const distance = Math.hypot(point.x - x, point.y - y);
+    if (distance < bestDistance) {
+      best = port;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function shapeNearPoint(shapes, x, y) {
+  let best = null;
+  let bestDistance = 140;
+  for (const shape of shapes) {
+    if (shape.type === "text") continue;
+    const nearX = Math.max(shape.x, Math.min(x, shape.x + shape.w));
+    const nearY = Math.max(shape.y, Math.min(y, shape.y + shape.h));
+    const distance = Math.hypot(x - nearX, y - nearY);
+    if (distance < bestDistance) {
+      best = shape;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function rasterShape(shape) {
+  const width = Math.max(1, Math.ceil(shape.w));
+  const height = Math.max(1, Math.ceil(shape.h));
+  const svgNode = document.createElementNS(SVGNS, "svg");
+  svgNode.setAttribute("xmlns", SVGNS);
+  svgNode.setAttribute("width", width);
+  svgNode.setAttribute("height", height);
+  svgNode.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  const local = { ...shape, x: 0, y: 0, w: width, h: height };
+  plainDraw = true;
+  try {
+    drawShapeBody(svgNode, local);
+  } finally {
+    plainDraw = false;
+  }
+  const markup = new XMLSerializer().serializeToString(svgNode);
+  const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml" }));
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const scale = 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#fffcf7";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        resolve(new Uint8Array(await blob.arrayBuffer()));
+      }, "image/png");
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    image.src = url;
+  });
+}
+
+function openForeignVisio(result) {
+  const shapes = (result.shapes || []).map((raw) => {
+    const shape = {
+      id: String(raw.id),
+      type: TYPES.has(raw.type) ? raw.type : "process",
+      x: raw.x,
+      y: raw.y,
+      w: Math.max(MIN_SIZE, raw.w),
+      h: Math.max(raw.type === "bus" ? 20 : MIN_SIZE, raw.h),
+      text: raw.text || "",
+    };
+    if (shape.type === "lane" && raw.fill && raw.fill !== "#e6eef6" && raw.fill !== "#fffcf7") shape.color = raw.fill;
+    return shape;
+  });
+  const connectors = [];
+  for (const raw of result.connectors || []) {
+    const from = shapes.find((shape) => shape.id === String(raw.fromId)) || shapeNearPoint(shapes, raw.x1, raw.y1);
+    const to = shapes.find((shape) => shape.id === String(raw.toId)) || shapeNearPoint(shapes, raw.x2, raw.y2);
+    if (!from || !to || from.id === to.id) continue;
+    const connector = {
+      id: "c" + raw.id,
+      fromId: from.id,
+      fromPort: nearestPortName(from, raw.x1, raw.y1),
+      toId: to.id,
+      toPort: nearestPortName(to, raw.x2, raw.y2),
+      text: raw.text || "",
+    };
+    if (raw.color && raw.color !== CONNECTOR_INK) connector.color = raw.color;
+    connectors.push(connector);
+  }
+  openText(JSON.stringify({ app: "Misio", title: "Misio", version: 1, shapes, connectors }));
+}
+
+async function importVisio(buffer) {
+  const result = await window.MisioVisio.read(buffer);
+  if (result.misio) openText(result.misio);
+  else openForeignVisio(result);
+  setStatus(ui(result.pages > 1 ? "opened-visio-page" : "opened-visio"));
+}
+
+async function exportVisio(options) {
+  const saveFile = !options || options.download !== false;
+  const embed = !options || options.embed !== false;
+  if (state.editor) closeEditor(true);
+  if (!state.doc.shapes.length && !state.doc.connectors.length) {
+    setStatus(ui("visio-empty"));
+    return null;
+  }
+  const doc = JSON.parse(serialize());
+  const images = {};
+  for (const shape of doc.shapes) {
+    if (shape.type === "legend" || symbolPack(shape.type)) {
+      const png = await rasterShape(shape);
+      if (png) images[shape.id] = png;
+    }
+  }
+  const shapes = doc.shapes.map((shape) => ({
+    ...shape,
+    fill: shape.type === "lane" ? laneFills(shape, false).head : "#fffcf7",
+    line: "#1c1915",
+  }));
+  const connectors = doc.connectors.map((connector) => ({
+    ...connector,
+    ends: connectorEnds(connector),
+    color: connector.color || CONNECTOR_INK,
+    points: connectorPoints(connector) || [],
+  })).filter((connector) => connector.points.length >= 2);
+  let bytes;
+  try {
+    bytes = window.MisioVisio.write({ json: serialize(), shapes, connectors, images }, { embed });
+  } catch (error) {
+    setStatus(ui("bad-visio"));
+    return null;
+  }
+  if (!saveFile) return bytes;
+  download("misio.vsdx", bytes, "application/vnd.ms-visio.drawing");
+  state.savedSnapshot = serialize();
+  persistDraft();
+  updateChrome();
+  setStatus(ui("saved-visio"));
+  return bytes;
 }
 
 function saveDoc() {
@@ -3215,14 +3374,37 @@ document.getElementById("confirm-yes").addEventListener("click", clearDoc);
 document.getElementById("confirm-no").addEventListener("click", hideConfirm);
 document.getElementById("open-doc").addEventListener("click", () => fileInput.click());
 saveButton.addEventListener("click", saveDoc);
+const visioInput = document.getElementById("visio-input");
+document.getElementById("import-visio").addEventListener("click", () => visioInput.click());
+document.getElementById("export-visio").addEventListener("click", () => {
+  exportVisio().catch(() => setStatus(ui("bad-visio")));
+});
+visioInput.addEventListener("change", () => {
+  const file = visioInput.files && visioInput.files[0];
+  visioInput.value = "";
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    importVisio(reader.result).catch(() => setStatus(ui("bad-visio")));
+  };
+  reader.onerror = () => setStatus(ui("file-unreadable"));
+  reader.readAsArrayBuffer(file);
+});
 document.getElementById("export-svg").addEventListener("click", exportSvg);
 fileInput.addEventListener("change", () => {
   const file = fileInput.files && fileInput.files[0];
   fileInput.value = "";
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => openText(String(reader.result || ""));
   reader.onerror = () => setStatus(ui("file-unreadable"));
+  if (/\.vsdx$/i.test(file.name)) {
+    reader.onload = () => {
+      importVisio(reader.result).catch(() => setStatus(ui("bad-visio")));
+    };
+    reader.readAsArrayBuffer(file);
+    return;
+  }
+  reader.onload = () => openText(String(reader.result || ""));
   reader.readAsText(file);
 });
 
@@ -3363,6 +3545,8 @@ window.Misio = {
   loadText(text) {
     openText(text);
   },
+  exportVisio,
+  importVisio,
   lastDownload() {
     return lastDownload;
   },
