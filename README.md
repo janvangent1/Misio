@@ -55,7 +55,7 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
 | Select (V) | move a shape, or resize it from a corner |
 | Connector (C) | drag from a port to a port. The menu beside it sets no arrow, one arrow, or two arrows. Automatic keeps one arrow on a flowchart and none on an AREI wire. Select a connector and use Color to change that line. With no color chosen, the line stays black. |
 | Bus (B) | drag a horizontal bar. Drop a symbol on the bar to add a tap and a wire. |
-| Ctrl-click or Shift-click | add or remove a shape from the selection. Drag one selected shape and the others move with it. |
+| Ctrl-click or Shift-click | add or remove a shape. Hold Ctrl and drag a box to select everything inside it. Drag one selected shape and the others move with it. |
 | Align left | line up the left edges of the selected shapes |
 | Space | space the selected shapes evenly |
 | Ctrl+C, Ctrl+V, Ctrl+D | copy, paste, and duplicate the selection |
@@ -96,8 +96,9 @@ text under a symbol is its name; double-click to rename a device.
 
 Vehicle holds a car or motorcycle wiring set: battery, ground, fuse, relay,
 switch, lamp, horn, motor, alternator, coil, ECU, sensor, spark plug, and
-connector. Pneumatics holds a shop-air set, from compressor and valves to
-cylinder, silencer, and vibrator. Plumbing holds the water side: pump, valves, tank,
+connector. Pneumatics holds a shop-air set: preparation, 2/2 to 5/3 valves
+including bistable, single- and double-acting cylinders, flow control, logic
+valves, vacuum, sensors, and a vibrator. Plumbing holds the water side: pump, valves, tank,
 boiler, radiator, tap, meter, and heat exchanger. A wire between two of
 these symbols is a plain line. Double-click a symbol to add a rating.
 

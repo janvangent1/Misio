@@ -714,4 +714,19 @@ window.MisioArei = {
   masters: AREI_MASTERS,
   draw: drawAreiSymbol,
   iconBox: areiIconBox,
+  ports: {
+    "arei-board-feeds": [
+      { id: "n1", x: 20, y: 4, dir: "top" },
+      { id: "n2", x: 10, y: 34, dir: "bottom" },
+      { id: "n3", x: 15, y: 34, dir: "bottom" },
+      { id: "n4", x: 20, y: 34, dir: "bottom" },
+      { id: "n5", x: 25, y: 34, dir: "bottom" },
+      { id: "n6", x: 30, y: 34, dir: "bottom" },
+    ],
+    "arei-branchbox": [
+      { id: "n1", x: 20, y: 2, dir: "top" },
+      { id: "n2", x: 14, y: 36, dir: "bottom" },
+      { id: "n3", x: 26, y: 36, dir: "bottom" },
+    ],
+  },
 };

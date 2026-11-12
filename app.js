@@ -10,6 +10,11 @@ const PORT_VECTOR = {
   right: [1, 0],
   bottom: [0, 1],
   left: [-1, 0],
+  p1: [0, 1],
+  p2: [0, -1],
+  p3: [0, 1],
+  p4: [0, -1],
+  p5: [0, 1],
 };
 const FLOW_MASTERS = [
   { type: "terminator", name: "Start / end", w: 160, h: 64, text: "Start", category: "standard" },
@@ -285,13 +290,58 @@ function redo() {
   render();
 }
 
+function symbolPacks() {
+  return [window.MisioAir, window.MisioNetwork, window.MisioVehicle, window.MisioWater, window.MisioArei].filter(Boolean);
+}
+
+function symbolPorts(shape) {
+  for (const pack of symbolPacks()) {
+    const table = pack.ports;
+    if (table && table[shape.type]) return { pack, ports: table[shape.type] };
+  }
+  return null;
+}
+
+function shapePorts(shape) {
+  const found = symbolPorts(shape);
+  return found ? found.ports.map((item) => item.id) : PORTS;
+}
+
+function knownPort(port) {
+  return typeof port === "string" && (Object.prototype.hasOwnProperty.call(PORT_VECTOR, port) || /^n\d+$/.test(port));
+}
+
+function mapIconPoint(pack, shape, nx, ny) {
+  if (pack.iconPoint) return pack.iconPoint(shape, nx, ny);
+  const box = pack.iconBox(shape);
+  const size = Math.min(box.w, box.h);
+  const ox = box.x + (box.w - size) / 2;
+  const oy = box.y + (box.h - size) / 2;
+  return { x: ox + (nx / 40) * size, y: oy + (ny / 40) * size };
+}
+
 function portPoint(shape, port) {
+  const found = symbolPorts(shape);
+  if (found) {
+    const item = found.ports.find((entry) => entry.id === port);
+    if (item) {
+      if (item.edge) return { x: shape.x + item.x * shape.w, y: shape.y + item.y * shape.h };
+      return mapIconPoint(found.pack, shape, item.x, item.y);
+    }
+  }
   switch (port) {
     case "top": return { x: shape.x + shape.w / 2, y: shape.y };
     case "right": return { x: shape.x + shape.w, y: shape.y + shape.h / 2 };
     case "bottom": return { x: shape.x + shape.w / 2, y: shape.y + shape.h };
     default: return { x: shape.x, y: shape.y + shape.h / 2 };
   }
+}
+
+function portVectorOf(shape, port) {
+  const found = shape && symbolPorts(shape);
+  const item = found && found.ports.find((entry) => entry.id === port);
+  if (item && PORT_VECTOR[item.dir]) return PORT_VECTOR[item.dir];
+  return PORT_VECTOR[port] || PORT_VECTOR.bottom;
 }
 
 function dedupe(points) {
@@ -303,9 +353,9 @@ function dedupe(points) {
   return result;
 }
 
-function routePoints(start, startPort, end, endPort) {
-  const [sdx, sdy] = PORT_VECTOR[startPort];
-  const [edx, edy] = PORT_VECTOR[endPort];
+function routePoints(start, startVec, end, endVec) {
+  const [sdx, sdy] = startVec;
+  const [edx, edy] = endVec;
   const p1 = { x: start.x + sdx * STUB, y: start.y + sdy * STUB };
   const p2 = { x: end.x + edx * STUB, y: end.y + edy * STUB };
   const points = [start, p1];
@@ -315,8 +365,11 @@ function routePoints(start, startPort, end, endPort) {
     const midX = (p1.x + p2.x) / 2;
     points.push({ x: midX, y: p1.y }, { x: midX, y: p2.y }, p2);
   } else if (sdy !== 0 && edy !== 0) {
-    const midY = (p1.y + p2.y) / 2;
-    points.push({ x: p1.x, y: midY }, { x: p2.x, y: midY }, p2);
+    if (Math.abs(start.x - end.x) <= GRID / 2) points.push(p2);
+    else {
+      const midY = (p1.y + p2.y) / 2;
+      points.push({ x: p1.x, y: midY }, { x: p2.x, y: midY }, p2);
+    }
   } else if (sdx !== 0) {
     points.push({ x: p2.x, y: p1.y }, p2);
   } else {
@@ -330,12 +383,17 @@ function connectorPoints(connector) {
   const from = getShape(connector.fromId);
   const to = getShape(connector.toId);
   if (!from || !to) return null;
-  return routePoints(portPoint(from, connector.fromPort), connector.fromPort, portPoint(to, connector.toPort), connector.toPort);
+  return routePoints(
+    portPoint(from, connector.fromPort),
+    portVectorOf(from, connector.fromPort),
+    portPoint(to, connector.toPort),
+    portVectorOf(to, connector.toPort),
+  );
 }
 
 function previewPoints(shape, port, cursor) {
   const start = portPoint(shape, port);
-  const [dx, dy] = PORT_VECTOR[port];
+  const [dx, dy] = portVectorOf(shape, port);
   const p1 = { x: start.x + dx * STUB, y: start.y + dy * STUB };
   const points = [start, p1];
   if (dx !== 0) points.push({ x: cursor.x, y: p1.y }, cursor);
@@ -1071,6 +1129,20 @@ function drawDiagram(parent, interactive) {
 function drawPreview(parent) {
   const gesture = state.gesture;
   if (!gesture) return;
+  if (gesture.type === "marquee" && gesture.armed) {
+    const x = Math.min(gesture.start.x, gesture.pointer.x);
+    const y = Math.min(gesture.start.y, gesture.pointer.y);
+    const w = Math.abs(gesture.pointer.x - gesture.start.x);
+    const h = Math.abs(gesture.pointer.y - gesture.start.y);
+    el("rect", {
+      x, y, width: w, height: h,
+      fill: "rgba(24, 78, 134, 0.12)",
+      stroke: "#184e86",
+      "stroke-width": 1.5 / state.view.scale,
+      "stroke-dasharray": `${5 / state.view.scale} ${4 / state.view.scale}`,
+    }, parent);
+    return;
+  }
   if (gesture.type === "bus" && gesture.pointer) {
     const x1 = Math.min(gesture.sx, gesture.pointer.x);
     const x2 = Math.max(gesture.sx, gesture.pointer.x);
@@ -1147,6 +1219,7 @@ function render() {
 
 function onPortPointerDown(event) {
   if (event.button !== 0) return;
+  if (modifierHeld(event)) return;
   event.preventDefault();
   event.stopPropagation();
   const shapeTarget = { kind: "shape", id: event.currentTarget.dataset.shapeId };
@@ -1175,7 +1248,7 @@ function syncPortButtons() {
   const needed = new Map();
   for (const shape of state.doc.shapes) {
     if (!portsVisible(shape)) continue;
-    for (const port of PORTS) needed.set(`${shape.id}:${port}`, { shape, port });
+    for (const port of shapePorts(shape)) needed.set(`${shape.id}:${port}`, { shape, port });
   }
   for (const node of [...wrap.querySelectorAll(".port-hit")]) {
     if (!needed.has(node.dataset.key)) node.remove();
@@ -1194,7 +1267,10 @@ function syncPortButtons() {
       node.addEventListener("dragstart", (dragEvent) => dragEvent.preventDefault());
       wrap.appendChild(node);
     }
-    const label = ui("port", { name: info.shape.text || labelFor(info.shape.type), side: ui(info.port) });
+    const numbered = /^(?:p|n)(\d+)$/.exec(String(info.port));
+    const label = numbered
+      ? ui("air-port", { name: info.shape.text || labelFor(info.shape.type), n: numbered[1] })
+      : ui("port", { name: info.shape.text || labelFor(info.shape.type), side: ui(info.port) });
     node.setAttribute("aria-label", label);
     node.title = label;
     const hot = state.hover && state.hover.kind === "port" && state.hover.id === info.shape.id && state.hover.port === info.port;
@@ -1300,9 +1376,10 @@ function hitHandle(point) {
 }
 
 function nearestPort(shape, point) {
-  let best = PORTS[0];
+  const ports = shapePorts(shape);
+  let best = ports[0];
   let bestDistance = Infinity;
-  for (const port of PORTS) {
+  for (const port of ports) {
     const center = portPoint(shape, port);
     const distance = Math.hypot(point.x - center.x, point.y - center.y);
     if (distance < bestDistance) {
@@ -1321,7 +1398,7 @@ function hitPort(point, options = {}) {
     if (options.excludeId && shape.id === options.excludeId) continue;
     const allowed = options.ignoreVisibility || state.tool === "connect" || portsVisible(shape) || hitShapeBody(shape, point);
     if (!allowed) continue;
-    for (const port of PORTS) {
+    for (const port of shapePorts(shape)) {
       const center = portPoint(shape, port);
       if (Math.hypot(point.x - center.x, point.y - center.y) <= reach) {
         return { id: shape.id, port };
@@ -2057,7 +2134,7 @@ function sanitizeConnector(raw, ids) {
   if (color && color !== CONNECTOR_INK) connector.color = color;
   if (!ids.has(connector.fromId) || !ids.has(connector.toId)) return null;
   if (connector.fromId === connector.toId) return null;
-  if (!PORTS.includes(connector.fromPort) || !PORTS.includes(connector.toPort)) return null;
+  if (!knownPort(connector.fromPort) || !knownPort(connector.toPort)) return null;
   bumpId(connector.id);
   return connector;
 }
@@ -2153,7 +2230,19 @@ function editTargetAt(world) {
   return null;
 }
 
+const heldKeys = new Set();
+
+function modifierHeld(event) {
+  return Boolean(
+    (event && (event.shiftKey || event.ctrlKey || event.metaKey))
+    || heldKeys.has("Control")
+    || heldKeys.has("Meta")
+    || heldKeys.has("Shift")
+  );
+}
+
 function wantsTextEdit(event, target) {
+  if (modifierHeld(event)) return false;
   if (!target) {
     lastEditPress = null;
     return false;
@@ -2167,6 +2256,30 @@ function wantsTextEdit(event, target) {
   );
   lastEditPress = { kind: target.kind, id: target.id, time: now };
   return repeat;
+}
+
+function shapesTouching(a, b) {
+  const x1 = Math.min(a.x, b.x);
+  const y1 = Math.min(a.y, b.y);
+  const x2 = Math.max(a.x, b.x);
+  const y2 = Math.max(a.y, b.y);
+  return state.doc.shapes.filter((shape) => {
+    if (shape.type === "lane") return false;
+    return shape.x < x2 && shape.x + shape.w > x1 && shape.y < y2 && shape.y + shape.h > y1;
+  });
+}
+
+function marqueeGesture(world, event, base, laneId) {
+  return {
+    type: "marquee",
+    start: { x: world.x, y: world.y },
+    pointer: { x: world.x, y: world.y },
+    client: { x: event.clientX, y: event.clientY },
+    pointerId: event.pointerId,
+    armed: false,
+    base: base.slice(),
+    laneId: laneId || null,
+  };
 }
 
 function onPointerDown(event) {
@@ -2215,7 +2328,7 @@ function onPointerDown(event) {
     return;
   }
   const port = hitPort(world);
-  if (port && state.tool === "select") {
+  if (port && state.tool === "select" && !modifierHeld(event)) {
     state.gesture = { type: "connect", fromId: port.id, fromPort: port.port, pointer: world, before: serialize() };
     state.selection = { kind: "shape", id: port.id };
     wrap.setPointerCapture(event.pointerId);
@@ -2225,8 +2338,13 @@ function onPointerDown(event) {
   if (state.tool === "select") {
     const shape = hitShape(world);
     if (shape) {
+      if (modifierHeld(event) && shape.type === "lane") {
+        state.gesture = marqueeGesture(world, event, selectedShapeIds(), shape.id);
+        render();
+        return;
+      }
       let ids = selectedShapeIds();
-      const addToSelection = event.shiftKey || event.ctrlKey || event.metaKey;
+      const addToSelection = modifierHeld(event);
       if (addToSelection) {
         ids = ids.includes(shape.id) ? ids.filter((id) => id !== shape.id) : ids.concat(shape.id);
         selectShapes(ids);
@@ -2239,6 +2357,7 @@ function onPointerDown(event) {
         ids = [shape.id];
         selectShapes(ids);
       }
+      if (addToSelection && ids.length > 1) setStatus(ui("selected-many", { n: ids.length }));
       const origins = {};
       const moving = new Set(selectedShapeIds());
       for (const id of selectedShapeIds()) {
@@ -2268,6 +2387,11 @@ function onPointerDown(event) {
     if (connector) {
       state.selection = { kind: "connector", id: connector.id };
       state.gesture = null;
+      render();
+      return;
+    }
+    if (modifierHeld(event)) {
+      state.gesture = marqueeGesture(world, event, selectedShapeIds(), null);
       render();
       return;
     }
@@ -2301,6 +2425,18 @@ function onPointerMove(event) {
   if (gesture.type === "pan") {
     state.view.x = gesture.vx + (event.clientX - gesture.sx);
     state.view.y = gesture.vy + (event.clientY - gesture.sy);
+    render();
+    return;
+  }
+  if (gesture.type === "marquee") {
+    if (!gesture.armed) {
+      const dx = event.clientX - gesture.client.x;
+      const dy = event.clientY - gesture.client.y;
+      if (dx * dx + dy * dy < 16) return;
+      gesture.armed = true;
+      wrap.setPointerCapture(gesture.pointerId);
+    }
+    gesture.pointer = world;
     render();
     return;
   }
@@ -2391,8 +2527,8 @@ function tapOnBus(bus, point, fromId) {
   const node = {
     id: uid(),
     type: "arei-node",
-    x: snap(centerX - 20),
-    y: snap(cy - 20),
+    x: centerX - 20,
+    y: cy - 20,
     w: 40,
     h: 40,
     text: "",
@@ -2455,6 +2591,20 @@ function finishGesture() {
     const shape = getShape(gesture.id);
     if (shape) delete shape.origin;
     commitChange(gesture.before);
+  } else if (gesture.type === "marquee") {
+    if (gesture.armed) {
+      const ids = gesture.base.slice();
+      for (const shape of shapesTouching(gesture.start, gesture.pointer)) {
+        if (!ids.includes(shape.id)) ids.push(shape.id);
+      }
+      selectShapes(ids);
+      if (ids.length > 1) setStatus(ui("selected-many", { n: ids.length }));
+    } else if (gesture.laneId) {
+      const ids = gesture.base.includes(gesture.laneId)
+        ? gesture.base.filter((id) => id !== gesture.laneId)
+        : gesture.base.concat(gesture.laneId);
+      selectShapes(ids);
+    }
   } else if (gesture.type === "connect" && !nativePortDrag) {
     const target = resolveTarget(gesture.fromId, gesture.pointer);
     if (addConnector(gesture.fromId, gesture.fromPort, target)) commitChange(gesture.before);
@@ -2884,6 +3034,7 @@ function isTypingTarget(target) {
 }
 
 function onKeyDown(event) {
+  if (event.key === "Control" || event.key === "Shift" || event.key === "Meta") heldKeys.add(event.key);
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     saveDoc();
@@ -2968,7 +3119,7 @@ function onKeyDown(event) {
 }
 
 function onDoubleClick(event) {
-  if (event.target === textarea) return;
+  if (event.target === textarea || modifierHeld(event)) return;
   const world = clientToWorld(event.clientX, event.clientY);
   const shape = hitShape(world);
   if (shape) {
@@ -3079,7 +3230,7 @@ wrap.addEventListener("drop", (event) => {
     const point = clientToWorld(event.clientX, event.clientY);
     state.gesture = null;
     nativePortDrag = false;
-    if (PORTS.includes(fromPort) && getShape(fromId)) {
+    if (knownPort(fromPort) && getShape(fromId)) {
       const before = serialize();
       if (addConnector(fromId, fromPort, resolveTarget(fromId, point))) commitChange(before);
     }
@@ -3134,8 +3285,10 @@ wrap.addEventListener("dblclick", onDoubleClick);
 wrap.addEventListener("wheel", onWheel, { passive: false });
 window.addEventListener("keydown", onKeyDown);
 window.addEventListener("keyup", (event) => {
+  if (event.key === "Control" || event.key === "Shift" || event.key === "Meta") heldKeys.delete(event.key);
   if (event.code === "Space") state.spaceDown = false;
 });
+window.addEventListener("blur", () => heldKeys.clear());
 textarea.addEventListener("blur", () => closeEditor(true));
 textarea.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {

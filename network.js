@@ -103,7 +103,65 @@ function netRouter(g) {
   g.arrow(14, 22, 5, 22);
 }
 
+function jackCount(type) {
+  if (type === "net-switch-4") return 4;
+  if (type === "net-switch") return 8;
+  if (type === "net-switch-24" || type === "net-patch") return 24;
+  return 0;
+}
+
+function drawJackRow(parent, shape, paint, count) {
+  const inset = 0.06;
+  const top = shape.y + 8;
+  const height = Math.max(26, Math.min(shape.h * 0.5, 46));
+  const left = shape.x + shape.w * inset;
+  const width = shape.w * (1 - inset * 2);
+  el("rect", {
+    x: left, y: top, width, height, rx: 4,
+    fill: paint.fill, stroke: paint.stroke, "stroke-width": paint.sw,
+  }, parent);
+  const jackW = Math.min(8, (width / count) * 0.46);
+  const jackH = Math.min(10, height * 0.38);
+  for (let i = 0; i < count; i += 1) {
+    const cx = left + width * (i + 0.5) / count;
+    el("rect", {
+      x: cx - jackW / 2,
+      y: top + height - jackH - 4,
+      width: jackW,
+      height: jackH,
+      rx: 1,
+      fill: paint.fill,
+      stroke: paint.stroke,
+      "stroke-width": paint.sw,
+    }, parent);
+    el("line", {
+      x1: cx, y1: top + height - 4, x2: cx, y2: shape.y + shape.h,
+      stroke: paint.stroke, "stroke-width": paint.sw, "stroke-linecap": "round",
+    }, parent);
+  }
+}
+
+function rowPorts(count) {
+  const inset = 0.06;
+  const ports = [];
+  for (let i = 0; i < count; i += 1) {
+    ports.push({
+      id: "n" + (i + 1),
+      x: inset + (1 - inset * 2) * ((i + 0.5) / count),
+      y: 1,
+      dir: "bottom",
+      edge: true,
+    });
+  }
+  return ports;
+}
+
 function drawNetworkSymbol(parent, shape, paint) {
+  const count = jackCount(shape.type);
+  if (count) {
+    drawJackRow(parent, shape, paint, count);
+    return;
+  }
   const g = netPen(parent, paint, netIconBox(shape));
   switch (shape.type) {
     case "net-server":
@@ -117,11 +175,14 @@ function drawNetworkSymbol(parent, shape, paint) {
       g.rect(10, 3, 20, 34, 1);
       for (let y = 8; y <= 32; y += 6) g.line(12, y, 28, y);
       break;
-    case "net-switch":
-      g.rect(3, 12, 34, 16, 1.5);
-      for (let x = 6; x <= 32; x += 4.5) g.rect(x, 20, 2.6, 4, 0.3);
-      g.circle(8, 16, 1.2, true);
-      g.circle(12, 16, 1.2, true);
+    case "net-hub":
+      g.circle(20, 20, 6, false);
+      g.line(20, 14, 20, 4);
+      g.line(20, 26, 20, 36);
+      g.line(26, 20, 36, 20);
+      g.line(14, 20, 4, 20);
+      g.line(24, 16, 32, 8);
+      g.line(16, 16, 8, 8);
       break;
     case "net-router":
       netRouter(g);
@@ -240,14 +301,14 @@ function drawNetworkSymbol(parent, shape, paint) {
   }
 }
 
-function netMaster(type, name) {
+function netMaster(type, name, w, h) {
   return {
     category: "network",
     type,
     name,
     text: name,
-    w: 136,
-    h: 104,
+    w: w || 136,
+    h: h || 104,
   };
 }
 
@@ -258,7 +319,9 @@ window.MisioNetwork = {
   masters: [
     netMaster("net-server", "Server"),
     netMaster("net-rack", "Rack"),
-    netMaster("net-switch", "Switch"),
+    netMaster("net-switch-4", "4-port switch", 168, 88),
+    netMaster("net-switch", "8-port switch", 248, 88),
+    netMaster("net-switch-24", "24-port switch", 560, 88),
     netMaster("net-router", "Router"),
     netMaster("net-wifi-router", "Wireless router"),
     netMaster("net-firewall", "Firewall"),
@@ -269,7 +332,7 @@ window.MisioNetwork = {
     netMaster("net-balancer", "Load balancer"),
     netMaster("net-modem", "Modem"),
     netMaster("net-hub", "Hub"),
-    netMaster("net-patch", "Patch panel"),
+    netMaster("net-patch", "Patch panel", 560, 88),
     netMaster("net-nas", "NAS"),
     netMaster("net-ups", "UPS"),
     netMaster("net-pc", "Workstation"),
@@ -281,4 +344,23 @@ window.MisioNetwork = {
   ],
   draw: drawNetworkSymbol,
   iconBox: netIconBox,
+  ports: {
+    "net-switch-4": rowPorts(4),
+    "net-switch": rowPorts(8),
+    "net-switch-24": rowPorts(24),
+    "net-patch": rowPorts(24),
+    "net-hub": [
+      { id: "n1", x: 20, y: 4, dir: "top" },
+      { id: "n2", x: 36, y: 20, dir: "right" },
+      { id: "n3", x: 20, y: 36, dir: "bottom" },
+      { id: "n4", x: 4, y: 20, dir: "left" },
+      { id: "n5", x: 32, y: 8, dir: "top" },
+      { id: "n6", x: 8, y: 8, dir: "top" },
+    ],
+    "net-balancer": [
+      { id: "n1", x: 20, y: 4, dir: "top" },
+      { id: "n2", x: 8, y: 36, dir: "bottom" },
+      { id: "n3", x: 32, y: 36, dir: "bottom" },
+    ],
+  },
 };
