@@ -885,11 +885,13 @@ function drawOutline(parent, shape, paint) {
     return;
   }
   if (shape.type === "text") {
-    el("rect", {
-      x, y, width: w, height: h, rx: 2,
-      ...common,
-      "stroke-dasharray": paint.selected ? "0" : "4 3",
-    }, parent);
+    if (!shape.bare || paint.selected) {
+      el("rect", {
+        x, y, width: w, height: h, rx: 2,
+        ...common,
+        "stroke-dasharray": paint.selected ? "0" : "4 3",
+      }, parent);
+    }
     return;
   }
   el("rect", { x, y, width: w, height: h, rx: 6, ...common }, parent);
@@ -2117,6 +2119,7 @@ function sanitizeShape(raw) {
   if (![shape.x, shape.y, shape.w, shape.h].every(Number.isFinite)) return null;
   shape.w = Math.max(MIN_SIZE, shape.w);
   shape.h = Math.max(MIN_SIZE, shape.h);
+  if (shape.type === "text" && raw.bare) shape.bare = true;
   if (shape.type === "lane") {
     shape.axis = raw.axis === "column" ? "column" : "row";
     const color = laneHex(raw.color);
@@ -2196,15 +2199,24 @@ function download(name, body, type) {
   window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
-function nearestPortName(shape, x, y) {
+function nearestPortName(shape, x, y, toward) {
   let best = shapePorts(shape)[0] || "bottom";
-  let bestDistance = Infinity;
+  let bestScore = Infinity;
+  const cx = shape.x + shape.w / 2;
+  const cy = shape.y + shape.h / 2;
+  const vx = toward ? toward.x - cx : 0;
+  const vy = toward ? toward.y - cy : 0;
+  const span = Math.hypot(vx, vy) || 1;
   for (const port of shapePorts(shape)) {
     const point = portPoint(shape, port);
-    const distance = Math.hypot(point.x - x, point.y - y);
-    if (distance < bestDistance) {
+    let score = Math.hypot(point.x - x, point.y - y);
+    if (toward) {
+      const [dx, dy] = portVectorOf(shape, port);
+      score -= ((dx * vx + dy * vy) / span) * Math.min(shape.w, shape.h) * 0.45;
+    }
+    if (score < bestScore) {
       best = port;
-      bestDistance = distance;
+      bestScore = score;
     }
   }
   return best;
@@ -2212,7 +2224,7 @@ function nearestPortName(shape, x, y) {
 
 function shapeNearPoint(shapes, x, y) {
   let best = null;
-  let bestDistance = 140;
+  let bestDistance = 260;
   for (const shape of shapes) {
     if (shape.type === "text") continue;
     const nearX = Math.max(shape.x, Math.min(x, shape.x + shape.w));
@@ -2282,6 +2294,14 @@ function openForeignVisio(result) {
       h: Math.max(raw.type === "bus" ? 20 : MIN_SIZE, raw.h),
       text: raw.text || "",
     };
+    if (shape.type === "text" && raw.bare) {
+      shape.bare = true;
+      const wide = Math.min(280, Math.max(88, shape.text.length * 8));
+      shape.x += shape.w / 2 - wide / 2;
+      shape.y += shape.h / 2 - 16;
+      shape.w = wide;
+      shape.h = 32;
+    }
     if (shape.type === "lane" && raw.fill && raw.fill !== "#e6eef6" && raw.fill !== "#fffcf7") shape.color = raw.fill;
     return shape;
   });
@@ -2293,9 +2313,9 @@ function openForeignVisio(result) {
     const connector = {
       id: "c" + raw.id,
       fromId: from.id,
-      fromPort: nearestPortName(from, raw.x1, raw.y1),
+      fromPort: nearestPortName(from, raw.x1, raw.y1, { x: raw.x2, y: raw.y2 }),
       toId: to.id,
-      toPort: nearestPortName(to, raw.x2, raw.y2),
+      toPort: nearestPortName(to, raw.x2, raw.y2, { x: raw.x1, y: raw.y1 }),
       text: raw.text || "",
     };
     if (raw.color && raw.color !== CONNECTOR_INK) connector.color = raw.color;

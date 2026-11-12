@@ -277,7 +277,8 @@ const AREI_NAMES = {
   automaat: "arei-breaker",
   differentieel: "arei-rcd",
   differentieelschakelaar: "arei-rcd",
-  "stopcontact met contact voor beschermgeleider": "arei-socket-pe",
+  "stopcontact met contact voor beschermgeleider": "arei-socket-pe-child",
+  "stopcontact met beschermgeleider en kinderbeveiliging": "arei-socket-pe-child",
   "enkelpolige vertraagde schakelaar": "arei-switch-delay",
   verlichtingstoestel: "arei-light",
   "enkelpolige wisselschakelaar": "arei-switch-two-way",
@@ -315,10 +316,15 @@ function typeFromName(value) {
   return "";
 }
 
-function typeFromShape(shape, masterName) {
+function typeFromShape(shape, master) {
   const stored = userValue(shape, "MisioType");
   if (stored) return stored;
-  const named = typeFromName(shape.getAttribute("NameU") || shape.getAttribute("Name") || "") || typeFromName(masterName);
+  const masterName = master && typeof master === "object" ? master.name : master;
+  const masterTitle = master && typeof master === "object" ? master.title : "";
+  const named = typeFromName(shape.getAttribute("NameU") || "")
+    || typeFromName(shape.getAttribute("Name") || "")
+    || typeFromName(masterTitle)
+    || typeFromName(masterName);
   if (named) return named;
   if (hasEllipse(shape)) return "terminator";
   return "";
@@ -366,6 +372,7 @@ function readMasters(bytes) {
     const id = master.getAttribute("ID");
     if (!id) continue;
     const name = master.getAttribute("NameU") || master.getAttribute("Name") || "";
+    const title = master.getAttribute("Name") || name;
     let width = NaN;
     let height = NaN;
     for (const sheet of master.children) {
@@ -373,7 +380,7 @@ function readMasters(bytes) {
       width = numberOr(cellOf(sheet, "PageWidth"), width);
       height = numberOr(cellOf(sheet, "PageHeight"), height);
     }
-    masters[id] = { name, width, height };
+    masters[id] = { name, title, width, height };
     if (/connector|verbindingslijn/i.test(name)) connectorIds.add(id);
   }
   return { masters, connectorIds };
@@ -391,8 +398,11 @@ function readPage(bytes, pageWidth, pageHeight, catalog) {
   function indexShape(shape, topId) {
     const id = shape.getAttribute("ID");
     if (id) topOf[id] = topId;
-    for (const child of shape.children) {
-      if (child.localName === "Shape") indexShape(child, topId);
+    // A symbol is a group. Visio glues a wire to a shape inside that group,
+    // and those shapes sit under a Shapes element, not directly on the group.
+    for (const child of shape.getElementsByTagNameNS("*", "Shape")) {
+      const childId = child.getAttribute("ID");
+      if (childId) topOf[childId] = topId;
     }
   }
   for (const shape of shapesNode ? [...shapesNode.children] : []) {
@@ -415,23 +425,27 @@ function readPage(bytes, pageWidth, pageHeight, catalog) {
     const locX = numberOr(cellOf(shape, "LocPinX"), width / 2);
     const locY = numberOr(cellOf(shape, "LocPinY"), height / 2);
     const angle = numberOr(cellOf(shape, "Angle"), 0);
+    const textAngle = numberOr(cellOf(shape, "TxtAngle"), 0);
     let boxW = width;
     let boxH = height;
-    if (Math.abs(Math.sin(angle)) > 0.9) {
+    const turned = Math.abs(Math.sin(angle)) > 0.9;
+    if (turned || Math.abs(Math.sin(textAngle)) > 0.9) {
       boxW = height;
       boxH = width;
     }
     const center = toPixel(pageWidth, pageHeight, pinX - locX + width / 2, pinY - locY + height / 2);
-    const named = typeFromShape(shape, master && master.name);
+    const named = typeFromShape(shape, master);
     const text = gatheredText(shape);
+    const type = named || (!master && text ? "text" : "process");
     const box = {
       id,
-      type: named || (!master && text ? "text" : "process"),
+      type,
       x: center.x - (boxW * PX_PER_INCH) / 2,
       y: center.y - (boxH * PX_PER_INCH) / 2,
       w: Math.max(1, boxW * PX_PER_INCH),
       h: Math.max(1, boxH * PX_PER_INCH),
       text,
+      bare: type === "text",
       fill: /^#[0-9a-fA-F]{6}$/.test(cellOf(shape, "FillForegnd")) ? cellOf(shape, "FillForegnd").toLowerCase() : "",
       line: /^#[0-9a-fA-F]{6}$/.test(cellOf(shape, "LineColor")) ? cellOf(shape, "LineColor").toLowerCase() : "",
     };

@@ -56,6 +56,12 @@ function schemePen(parent, paint, box) {
       stroke, "stroke-width": sw,
     }, parent);
   }
+  function arc(x1, y1, rx, ry, x2, y2, sweep) {
+    el("path", {
+      d: `M ${X(x1)} ${Y(y1)} A ${(rx / 40) * size} ${(ry / 40) * size} 0 0 ${sweep === 0 ? 0 : 1} ${X(x2)} ${Y(y2)}`,
+      fill: "none", stroke, "stroke-width": sw, "stroke-linecap": "round",
+    }, parent);
+  }
   function rect(x, y, w, h, radius) {
     el("rect", {
       x: X(x), y: Y(y),
@@ -99,7 +105,7 @@ function schemePen(parent, paint, box) {
     }, parent);
     node.textContent = str;
   }
-  return { line, circle, rect, poly, arrow, tag };
+  return { line, circle, arc, rect, poly, arrow, tag };
 }
 
 function drawVehicleSymbol(parent, shape, paint) {
@@ -156,21 +162,21 @@ function drawVehicleSymbol(parent, shape, paint) {
       g.line(33, 5, 33, 35);
       break;
     case "veh-motor":
-      g.circle(20, 20, 13, false);
-      g.line(13, 26, 13, 15);
-      g.line(13, 15, 20, 23);
-      g.line(20, 23, 27, 15);
-      g.line(27, 15, 27, 26);
+      g.line(2, 20, 8, 20);
+      g.circle(22, 20, 12, false);
+      g.tag("M", 22, 20, 11);
+      g.line(34, 20, 38, 20);
       break;
     case "veh-alternator":
       g.circle(20, 20, 13, false);
       g.poly([[9, 20], [13, 14], [17, 26], [21, 14], [25, 26], [29, 20], [32, 20]], false);
       break;
     case "veh-coil":
-      g.line(4, 20, 10, 20);
-      g.circle(16, 20, 6, false);
-      g.circle(26, 20, 6, false);
-      g.line(32, 20, 38, 20);
+      g.line(2, 22, 8, 22);
+      g.arc(8, 22, 4, 6, 16, 22, 0);
+      g.arc(16, 22, 4, 6, 24, 22, 0);
+      g.arc(24, 22, 4, 6, 32, 22, 0);
+      g.line(32, 22, 38, 22);
       break;
     case "veh-ecu":
       g.rect(10, 8, 20, 24, 1);
@@ -188,11 +194,12 @@ function drawVehicleSymbol(parent, shape, paint) {
       g.line(20, 24, 20, 36);
       break;
     case "veh-plug":
-      g.line(20, 2, 20, 10);
-      g.rect(15, 10, 10, 8, 1);
-      g.line(20, 18, 20, 28);
-      g.line(16, 28, 24, 28);
-      g.line(12, 36, 22, 28);
+      g.line(20, 2, 20, 12);
+      g.rect(14, 12, 12, 8, 1);
+      g.line(20, 20, 20, 28);
+      g.line(14, 28, 26, 28);
+      g.line(14, 34, 20, 28);
+      g.line(20, 28, 20, 36);
       break;
     case "veh-connector":
       g.line(2, 20, 8, 20);
@@ -217,13 +224,27 @@ function drawAirSymbol(parent, shape, paint) {
     g.line(x + 1, y + h - 2, x + w - 1, y + 2);
   }
   function pilot(x, y, dir) {
-    g.poly([[x, y - 4], [x, y + 4], [x + dir * 5, y]], true);
+    g.poly([[x, y - 4], [x, y + 4], [x + dir * 5, y]], "ink");
+  }
+  function flow(x1, y1, x2, y2) {
+    g.line(x1, y1, x2, y2);
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const s = 2.1;
+    g.poly([
+      [x2, y2],
+      [x2 - ux * s - uy * s * 0.7, y2 - uy * s + ux * s * 0.7],
+      [x2 - ux * s + uy * s * 0.7, y2 - uy * s - ux * s * 0.7],
+    ], "ink");
   }
   switch (shape.type) {
     case "air-compressor":
       g.line(2, 20, 8, 20);
       g.circle(22, 20, 11, false);
-      g.poly([[14, 14], [14, 26], [32, 20]], true);
+      g.poly([[14, 14], [14, 26], [32, 20]], "ink");
       g.line(33, 20, 38, 20);
       break;
     case "air-tank":
@@ -252,100 +273,102 @@ function drawAirSymbol(parent, shape, paint) {
       break;
     case "air-valve22":
       coil(1, 16, 7, 8);
-      g.rect(8, 13, 11, 14, 0);
-      g.rect(19, 13, 11, 14, 0);
-      g.arrow(11, 24, 16, 16);
-      g.line(22, 23, 27, 23);
-      g.line(24.5, 21, 24.5, 25);
-      g.line(22, 17, 27, 17);
-      g.line(24.5, 15, 24.5, 19);
-      spring(30, 20);
-      g.line(24, 7, 24, 13);
-      g.line(24, 27, 24, 36);
+      g.rect(8, 13, 10, 14, 0);
+      g.rect(18, 13, 10, 14, 0);
+      flow(11, 24, 15, 16);
+      g.line(23, 13, 23, 18);
+      g.line(20, 18, 26, 18);
+      g.line(23, 27, 23, 22);
+      g.line(20, 22, 26, 22);
+      spring(28, 20);
+      g.line(23, 3, 23, 13);
+      g.line(23, 27, 23, 38);
       break;
     case "air-valve32":
       coil(1, 16, 7, 8);
-      g.rect(8, 13, 11, 14, 0);
-      g.rect(19, 13, 11, 14, 0);
-      g.arrow(10, 24, 16, 16);
-      g.line(15, 24, 17, 24);
-      g.line(16, 22, 16, 26);
-      g.arrow(21, 16, 27, 24);
-      g.line(22, 24, 25, 24);
-      g.line(23.5, 22, 23.5, 26);
-      spring(30, 20);
-      g.line(22, 6, 22, 13);
-      g.line(21, 27, 21, 36);
-      g.line(27, 27, 27, 36);
+      g.rect(8, 13, 10, 14, 0);
+      g.rect(18, 13, 10, 14, 0);
+      flow(11, 24, 15, 16);
+      g.line(13, 24, 13, 27);
+      g.line(11, 27, 15, 27);
+      flow(21, 16, 26, 24);
+      g.line(20, 24, 20, 27);
+      g.line(18, 27, 22, 27);
+      spring(28, 20);
+      g.line(22, 3, 22, 13);
+      g.line(20, 27, 20, 38);
+      g.line(26, 27, 26, 38);
       break;
     case "air-valve52":
       coil(0, 16, 6, 8);
-      g.rect(6, 12, 13, 16, 0);
-      g.rect(19, 12, 13, 16, 0);
-      g.arrow(8, 25, 15, 15);
-      g.arrow(17, 15, 11, 25);
-      g.arrow(21, 25, 28, 15);
-      g.arrow(30, 15, 24, 25);
-      spring(32, 20);
-      g.line(22, 5, 22, 12);
-      g.line(29, 5, 29, 12);
-      g.line(21, 28, 21, 37);
-      g.line(25, 28, 25, 37);
-      g.line(29, 28, 29, 37);
+      g.rect(6, 12, 11, 16, 0);
+      g.rect(17, 12, 11, 16, 0);
+      flow(8, 25, 8, 15);
+      flow(14, 15, 14, 25);
+      flow(20, 25, 20, 15);
+      flow(25, 15, 25, 25);
+      spring(28, 20);
+      g.line(20, 2, 20, 12);
+      g.line(25, 2, 25, 12);
+      g.line(19, 28, 19, 38);
+      g.line(23, 28, 23, 38);
+      g.line(27, 28, 27, 38);
       break;
     case "air-valve32-bi":
       pilot(1, 20, 1);
       g.rect(7, 13, 12, 14, 0);
       g.rect(19, 13, 12, 14, 0);
-      pilot(36, 20, -1);
-      g.arrow(9, 24, 16, 16);
-      g.arrow(21, 16, 28, 24);
-      g.line(22, 6, 22, 13);
-      g.line(21, 27, 21, 36);
-      g.line(28, 27, 28, 36);
+      pilot(37, 20, -1);
+      flow(10, 24, 16, 16);
+      flow(22, 16, 28, 24);
+      g.line(23, 3, 23, 13);
+      g.line(21, 27, 21, 38);
+      g.line(28, 27, 28, 38);
       break;
     case "air-valve52-bi":
       pilot(0, 20, 1);
-      g.rect(6, 12, 13, 16, 0);
-      g.rect(19, 12, 13, 16, 0);
-      pilot(37, 20, -1);
-      g.arrow(8, 25, 15, 15);
-      g.arrow(17, 15, 11, 25);
-      g.arrow(21, 25, 28, 15);
-      g.arrow(30, 15, 24, 25);
-      g.line(22, 5, 22, 12);
-      g.line(29, 5, 29, 12);
-      g.line(21, 28, 21, 37);
-      g.line(25, 28, 25, 37);
-      g.line(29, 28, 29, 37);
+      g.rect(6, 12, 11, 16, 0);
+      g.rect(17, 12, 11, 16, 0);
+      pilot(36, 20, -1);
+      flow(8, 25, 8, 15);
+      flow(14, 15, 14, 25);
+      flow(20, 25, 20, 15);
+      flow(25, 15, 25, 25);
+      g.line(20, 2, 20, 12);
+      g.line(25, 2, 25, 12);
+      g.line(19, 28, 19, 38);
+      g.line(23, 28, 23, 38);
+      g.line(27, 28, 27, 38);
       break;
     case "air-valve53":
-      coil(0, 17, 5, 7);
-      g.rect(6, 12, 9, 16, 0);
-      g.rect(15, 12, 10, 16, 0);
-      g.rect(25, 12, 9, 16, 0);
-      coil(35, 17, 5, 7);
-      g.poly([[8, 11], [10, 7], [12, 11]], false);
-      g.poly([[28, 11], [30, 7], [32, 11]], false);
-      g.arrow(7, 25, 13, 15);
-      g.arrow(14, 15, 9, 25);
-      g.line(17, 14, 23, 14);
-      g.line(20, 14, 20, 17);
-      g.line(17, 26, 23, 26);
-      g.line(20, 23, 20, 26);
-      g.line(16, 19, 16, 23);
-      g.line(16, 21, 18, 21);
-      g.arrow(26, 25, 32, 15);
-      g.arrow(33, 15, 27, 25);
-      g.line(17, 4, 17, 12);
-      g.line(23, 4, 23, 12);
+      coil(0, 16, 5, 8);
+      g.rect(5, 12, 9, 16, 0);
+      g.rect(14, 12, 12, 16, 0);
+      g.rect(26, 12, 9, 16, 0);
+      coil(35, 16, 5, 8);
+      flow(7, 25, 7, 15);
+      flow(12, 15, 12, 25);
+      g.line(17, 12, 17, 16);
+      g.line(15, 16, 19, 16);
+      g.line(23, 12, 23, 16);
+      g.line(21, 16, 25, 16);
+      g.line(16, 28, 16, 24);
+      g.line(14, 24, 18, 24);
+      g.line(20, 28, 20, 24);
+      g.line(18, 24, 22, 24);
+      g.line(24, 28, 24, 24);
+      g.line(22, 24, 26, 24);
+      flow(28, 25, 28, 15);
+      flow(33, 15, 33, 25);
+      g.line(17, 2, 17, 12);
+      g.line(23, 2, 23, 12);
       g.line(16, 28, 16, 38);
       g.line(20, 28, 20, 38);
       g.line(24, 28, 24, 38);
       break;
     case "air-check":
       g.line(2, 20, 8, 20);
-      g.poly([[8, 11], [8, 29], [24, 20]], true);
+      g.poly([[8, 11], [8, 29], [24, 20]], "ink");
       g.line(24, 11, 24, 29);
       g.line(24, 20, 38, 20);
       break;
@@ -462,7 +485,7 @@ function drawAirSymbol(parent, shape, paint) {
     case "air-motor":
       g.line(2, 20, 8, 20);
       g.circle(20, 20, 11, false);
-      g.poly([[12, 14], [12, 26], [26, 20]], true);
+      g.poly([[28, 14], [28, 26], [14, 20]], "ink");
       g.line(31, 20, 38, 20);
       break;
     case "air-silencer":
@@ -655,36 +678,36 @@ window.MisioAir = {
   iconPoint: schemeIconPoint,
   ports: {
     "air-valve22": [
-      { id: "p2", x: 24, y: 7 },
-      { id: "p1", x: 24, y: 36 },
+      { id: "p2", x: 23, y: 3 },
+      { id: "p1", x: 23, y: 38 },
     ],
     "air-valve32": [
-      { id: "p2", x: 22, y: 6 },
-      { id: "p1", x: 21, y: 36 },
-      { id: "p3", x: 27, y: 36 },
+      { id: "p2", x: 22, y: 3 },
+      { id: "p1", x: 20, y: 38 },
+      { id: "p3", x: 26, y: 38 },
     ],
     "air-valve32-bi": [
-      { id: "p2", x: 22, y: 6 },
-      { id: "p1", x: 21, y: 36 },
-      { id: "p3", x: 28, y: 36 },
+      { id: "p2", x: 23, y: 3 },
+      { id: "p1", x: 21, y: 38 },
+      { id: "p3", x: 28, y: 38 },
     ],
     "air-valve52": [
-      { id: "p2", x: 22, y: 5 },
-      { id: "p4", x: 29, y: 5 },
-      { id: "p3", x: 21, y: 37 },
-      { id: "p1", x: 25, y: 37 },
-      { id: "p5", x: 29, y: 37 },
+      { id: "p2", x: 20, y: 2 },
+      { id: "p4", x: 25, y: 2 },
+      { id: "p3", x: 19, y: 38 },
+      { id: "p1", x: 23, y: 38 },
+      { id: "p5", x: 27, y: 38 },
     ],
     "air-valve52-bi": [
-      { id: "p2", x: 22, y: 5 },
-      { id: "p4", x: 29, y: 5 },
-      { id: "p3", x: 21, y: 37 },
-      { id: "p1", x: 25, y: 37 },
-      { id: "p5", x: 29, y: 37 },
+      { id: "p2", x: 20, y: 2 },
+      { id: "p4", x: 25, y: 2 },
+      { id: "p3", x: 19, y: 38 },
+      { id: "p1", x: 23, y: 38 },
+      { id: "p5", x: 27, y: 38 },
     ],
     "air-valve53": [
-      { id: "p2", x: 17, y: 4 },
-      { id: "p4", x: 23, y: 4 },
+      { id: "p2", x: 17, y: 2 },
+      { id: "p4", x: 23, y: 2 },
       { id: "p3", x: 16, y: 38 },
       { id: "p1", x: 20, y: 38 },
       { id: "p5", x: 24, y: 38 },
