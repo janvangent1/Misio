@@ -59,6 +59,13 @@ const connectButton = document.getElementById("tool-connect");
 const busButton = document.getElementById("tool-bus");
 const endsSelect = document.getElementById("connector-ends");
 const shapeSearch = document.getElementById("shape-search");
+const laneColorWrap = document.getElementById("lane-color-wrap");
+const laneColorInput = document.getElementById("lane-color");
+const laneSwatches = [...document.querySelectorAll(".lane-swatch")];
+const connectorColorWrap = document.getElementById("connector-color-wrap");
+const connectorColorInput = document.getElementById("connector-color");
+const connectorSwatches = [...document.querySelectorAll(".connector-swatch")];
+let colorBefore = null;
 
 const measureCtx = document.createElement("canvas").getContext("2d");
 
@@ -155,7 +162,11 @@ function shapeRecord(shape) {
     h: shape.h,
     text: String(shape.text ?? ""),
   };
-  if (shape.type === "lane") record.axis = laneAxis(shape);
+  if (shape.type === "lane") {
+    record.axis = laneAxis(shape);
+    const color = laneHex(shape.color);
+    if (color) record.color = color;
+  }
   return record;
 }
 
@@ -169,6 +180,8 @@ function connectorRecord(connector) {
     text: String(connector.text ?? ""),
   };
   if (knownEnds(connector.ends)) record.ends = connector.ends;
+  const color = laneHex(connector.color);
+  if (color && color !== CONNECTOR_INK) record.color = color;
   return record;
 }
 
@@ -569,6 +582,69 @@ function laneHead(shape) {
     : Math.min(112, shape.w / 3);
 }
 
+const LANE_BODY = "#f4f7fb";
+const LANE_HEAD = "#e6eef6";
+const LANE_HEAD_SELECTED = "#d6e4f2";
+
+function laneHex(value) {
+  const text = String(value || "").trim().toLowerCase();
+  const match = text.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);
+  if (!match) return "";
+  const hex = match[1];
+  if (hex.length === 3) return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+  return `#${hex}`;
+}
+
+function hexChannels(hex) {
+  const value = parseInt(hex.slice(1), 16);
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+}
+
+function mixHex(hex, toward, amount) {
+  const left = hexChannels(hex);
+  const right = hexChannels(toward);
+  const channel = (from, to) => Math.round(from + (to - from) * amount);
+  const byte = (n) => n.toString(16).padStart(2, "0");
+  return `#${byte(channel(left.r, right.r))}${byte(channel(left.g, right.g))}${byte(channel(left.b, right.b))}`;
+}
+
+function laneInk(hex) {
+  const { r, g, b } = hexChannels(hex);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance < 0.45 ? "#fffcf7" : "#1c1915";
+}
+
+function laneFills(shape, selected) {
+  const color = laneHex(shape.color);
+  if (!color) return { body: LANE_BODY, head: selected ? LANE_HEAD_SELECTED : LANE_HEAD, ink: "#1c1915" };
+  const head = selected ? mixHex(color, "#1c1915", 0.14) : color;
+  return { body: mixHex(color, "#fffcf7", 0.62), head, ink: laneInk(head) };
+}
+
+function selectedLanes() {
+  return selectedShapeIds().map(getShape).filter((shape) => shape && shape.type === "lane");
+}
+
+function paintSelectedLanes(value) {
+  const lanes = selectedLanes();
+  if (!lanes.length) return false;
+  const color = laneHex(value);
+  const stored = color && color !== LANE_HEAD ? color : "";
+  let changed = false;
+  for (const lane of lanes) {
+    if (stored) {
+      if (lane.color !== stored) {
+        lane.color = stored;
+        changed = true;
+      }
+    } else if (lane.color) {
+      delete lane.color;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function shapesInsideLane(lane) {
   return state.doc.shapes.filter((shape) => {
     if (shape.id === lane.id || shape.type === "lane" || shape.type === "legend") return false;
@@ -581,12 +657,13 @@ function shapesInsideLane(lane) {
 function drawLane(parent, shape, paint) {
   const head = laneHead(shape);
   const column = laneAxis(shape) === "column";
+  const fills = laneFills(shape, paint.selected);
   el("rect", {
     x: shape.x,
     y: shape.y,
     width: shape.w,
     height: shape.h,
-    fill: "#f4f7fb",
+    fill: fills.body,
     stroke: paint.stroke,
     "stroke-width": paint.sw,
   }, parent);
@@ -595,7 +672,7 @@ function drawLane(parent, shape, paint) {
     y: shape.y,
     width: column ? shape.w : head,
     height: column ? head : shape.h,
-    fill: paint.selected ? "#d6e4f2" : "#e6eef6",
+    fill: fills.head,
     stroke: paint.stroke,
     "stroke-width": paint.sw,
   }, parent);
@@ -612,7 +689,7 @@ function drawLane(parent, shape, paint) {
     "font-family": "Segoe UI, Helvetica Neue, sans-serif",
     "font-size": 14,
     "font-weight": 600,
-    fill: "#1c1915",
+    fill: fills.ink,
   }, parent);
   lines.forEach((line, index) => {
     const tspan = el("tspan", { x: cx, dy: index === 0 ? 0 : lineHeight }, text);
@@ -818,30 +895,53 @@ function shownConnectorEnds() {
   return state.connectorEnds;
 }
 
-function arrowMarkerAttrs(ends, ink) {
+const CONNECTOR_INK = "#1c1915";
+
+function connectorStroke(connector, preview) {
+  if (preview) return "#7aa0c4";
+  return laneHex(connector.color) || CONNECTOR_INK;
+}
+
+function selectedConnector() {
+  if (!state.selection || state.selection.kind !== "connector") return null;
+  return getConnector(state.selection.id);
+}
+
+function paintSelectedConnector(value) {
+  const connector = selectedConnector();
+  if (!connector) return false;
+  const color = laneHex(value);
+  const stored = color && color !== CONNECTOR_INK ? color : "";
+  if (stored) {
+    if (connector.color === stored) return false;
+    connector.color = stored;
+  } else if (connector.color) {
+    delete connector.color;
+  } else return false;
+  return true;
+}
+
+function arrowMarkerAttrs(ends) {
   if (ends === "none") return {};
-  const id = ink ? "arrow-ink" : "arrow";
   const attrs = {};
-  if (ends === "end" || ends === "both") attrs["marker-end"] = `url(#${id})`;
-  if (ends === "both") attrs["marker-start"] = `url(#${id}-start)`;
+  if (ends === "end" || ends === "both") attrs["marker-end"] = "url(#arrow)";
+  if (ends === "both") attrs["marker-start"] = "url(#arrow-start)";
   return attrs;
 }
 
 function addArrowMarkers(defs) {
-  for (const [id, fill] of [["arrow", "#184e86"], ["arrow-ink", "#1c1915"]]) {
-    for (const [suffix, orient] of [["", "auto"], ["-start", "auto-start-reverse"]]) {
-      const marker = el("marker", {
-        id: id + suffix,
-        viewBox: "0 0 12 10",
-        refX: "11",
-        refY: "5",
-        markerWidth: "12",
-        markerHeight: "10",
-        orient,
-        markerUnits: "userSpaceOnUse",
-      }, defs);
-      el("path", { d: "M0 0 L12 5 L0 10 Z", fill }, marker);
-    }
+  for (const [suffix, orient] of [["", "auto"], ["-start", "auto-start-reverse"]]) {
+    const marker = el("marker", {
+      id: "arrow" + suffix,
+      viewBox: "0 0 12 10",
+      refX: "11",
+      refY: "5",
+      markerWidth: "12",
+      markerHeight: "10",
+      orient,
+      markerUnits: "userSpaceOnUse",
+    }, defs);
+    el("path", { d: "M0 0 L12 5 L0 10 Z", fill: "context-stroke" }, marker);
   }
 }
 
@@ -849,17 +949,16 @@ function drawConnector(parent, connector, options = {}) {
   const points = connectorPoints(connector);
   if (!points) return;
   const selected = state.selection && state.selection.kind === "connector" && state.selection.id === connector.id;
-  const wiring = !options.preview && wirePair(connector);
   const path = el("path", {
     d: toPath(points),
     fill: "none",
-    stroke: options.preview ? "#7aa0c4" : wiring ? "#1c1915" : "#184e86",
+    stroke: connectorStroke(connector, options.preview),
     "stroke-width": selected ? 2.4 : 1.7,
     "stroke-linejoin": "round",
     "stroke-linecap": "round",
     "stroke-dasharray": options.preview ? "5 4" : "0",
     "data-connector-id": connector.id,
-    ...arrowMarkerAttrs(connectorEnds(connector), Boolean(wiring)),
+    ...arrowMarkerAttrs(connectorEnds(connector)),
   }, parent);
   path.dataset.connectorId = connector.id;
   const label = String(connector.text || "").trim();
@@ -998,7 +1097,7 @@ function drawPreview(parent) {
     "stroke-linejoin": "round",
     "stroke-linecap": "round",
     "stroke-dasharray": "5 4",
-    ...arrowMarkerAttrs(previewEnds, false),
+    ...arrowMarkerAttrs(previewEnds),
   }, parent);
 }
 
@@ -1116,6 +1215,27 @@ function updateChrome() {
   const shownEnds = shownConnectorEnds();
   if (endsSelect.value !== shownEnds) endsSelect.value = shownEnds;
   saveButton.classList.toggle("is-dirty", serialize() !== state.savedSnapshot);
+  const lanes = selectedLanes();
+  laneColorWrap.hidden = lanes.length === 0;
+  if (lanes.length && document.activeElement !== laneColorInput) {
+    const current = laneHex(lanes[lanes.length - 1].color) || LANE_HEAD;
+    if (laneHex(laneColorInput.value) !== current) laneColorInput.value = current;
+    for (const swatch of laneSwatches) {
+      const wanted = laneHex(swatch.dataset.color) || LANE_HEAD;
+      const matched = lanes.every((lane) => (laneHex(lane.color) || LANE_HEAD) === wanted);
+      swatch.setAttribute("aria-pressed", matched ? "true" : "false");
+    }
+  }
+  const connector = selectedConnector();
+  connectorColorWrap.hidden = !connector;
+  if (connector && document.activeElement !== connectorColorInput) {
+    const current = laneHex(connector.color) || CONNECTOR_INK;
+    if (laneHex(connectorColorInput.value) !== current) connectorColorInput.value = current;
+    for (const swatch of connectorSwatches) {
+      const wanted = laneHex(swatch.dataset.color) || CONNECTOR_INK;
+      swatch.setAttribute("aria-pressed", current === wanted ? "true" : "false");
+    }
+  }
   wrap.classList.toggle("is-connect", state.tool === "connect" && !(state.gesture && state.gesture.type === "pan"));
   wrap.classList.toggle("is-pan", Boolean(state.gesture && state.gesture.type === "pan"));
 }
@@ -1912,6 +2032,8 @@ function sanitizeShape(raw) {
   shape.h = Math.max(MIN_SIZE, shape.h);
   if (shape.type === "lane") {
     shape.axis = raw.axis === "column" ? "column" : "row";
+    const color = laneHex(raw.color);
+    if (color) shape.color = color;
     const min = laneMin(shape);
     shape.w = Math.max(min.w, shape.w);
     shape.h = Math.max(min.h, shape.h);
@@ -1931,6 +2053,8 @@ function sanitizeConnector(raw, ids) {
     text: String(raw.text ?? "").slice(0, 1000),
   };
   if (knownEnds(raw.ends)) connector.ends = raw.ends;
+  const color = laneHex(raw.color);
+  if (color && color !== CONNECTOR_INK) connector.color = color;
   if (!ids.has(connector.fromId) || !ids.has(connector.toId)) return null;
   if (connector.fromId === connector.toId) return null;
   if (!PORTS.includes(connector.fromPort) || !PORTS.includes(connector.toPort)) return null;
@@ -2102,7 +2226,8 @@ function onPointerDown(event) {
     const shape = hitShape(world);
     if (shape) {
       let ids = selectedShapeIds();
-      if (event.shiftKey) {
+      const addToSelection = event.shiftKey || event.ctrlKey || event.metaKey;
+      if (addToSelection) {
         ids = ids.includes(shape.id) ? ids.filter((id) => id !== shape.id) : ids.concat(shape.id);
         selectShapes(ids);
         if (!ids.includes(shape.id)) {
@@ -2500,7 +2625,11 @@ function stampCopies(records, dx, dy) {
       h: raw.h,
       text: raw.text,
     };
-    if (raw.type === "lane") shape.axis = raw.axis === "column" ? "column" : "row";
+    if (raw.type === "lane") {
+      shape.axis = raw.axis === "column" ? "column" : "row";
+      const color = laneHex(raw.color);
+      if (color) shape.color = color;
+    }
     map.set(String(raw.id), shape.id);
     state.doc.shapes.push(shape);
     ids.push(shape.id);
@@ -2518,6 +2647,8 @@ function stampCopies(records, dx, dy) {
       text: raw.text,
     };
     if (knownEnds(raw.ends)) connector.ends = raw.ends;
+    const color = laneHex(raw.color);
+    if (color && color !== CONNECTOR_INK) connector.color = color;
     state.doc.connectors.push(connector);
   }
   selectShapes(ids);
@@ -2860,6 +2991,50 @@ undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
 document.getElementById("arrange").addEventListener("click", arrangeDiagram);
 document.getElementById("lane").addEventListener("click", (event) => addLane(event.shiftKey ? "column" : "row"));
+for (const swatch of laneSwatches) {
+  swatch.addEventListener("click", () => {
+    const before = serialize();
+    if (!paintSelectedLanes(swatch.dataset.color)) return;
+    commitChange(before);
+    render();
+    setStatus(ui("lane-colored"));
+  });
+}
+function finishLaneColor() {
+  if (colorBefore == null) return;
+  const before = colorBefore;
+  colorBefore = null;
+  if (commitChange(before)) setStatus(ui("lane-colored"));
+  else updateChrome();
+}
+laneColorInput.addEventListener("input", () => {
+  if (colorBefore == null) colorBefore = serialize();
+  if (paintSelectedLanes(laneColorInput.value)) render();
+});
+laneColorInput.addEventListener("change", finishLaneColor);
+laneColorInput.addEventListener("blur", finishLaneColor);
+for (const swatch of connectorSwatches) {
+  swatch.addEventListener("click", () => {
+    const before = serialize();
+    if (!paintSelectedConnector(swatch.dataset.color)) return;
+    commitChange(before);
+    render();
+    setStatus(ui("connector-colored"));
+  });
+}
+function finishConnectorColor() {
+  if (colorBefore == null) return;
+  const before = colorBefore;
+  colorBefore = null;
+  if (commitChange(before)) setStatus(ui("connector-colored"));
+  else updateChrome();
+}
+connectorColorInput.addEventListener("input", () => {
+  if (colorBefore == null) colorBefore = serialize();
+  if (paintSelectedConnector(connectorColorInput.value)) render();
+});
+connectorColorInput.addEventListener("change", finishConnectorColor);
+connectorColorInput.addEventListener("blur", finishConnectorColor);
 document.getElementById("legend").addEventListener("click", addLegend);
 document.getElementById("fit").addEventListener("click", fitView);
 document.getElementById("zoom-in").addEventListener("click", () => {

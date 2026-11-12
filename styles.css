@@ -123,6 +123,47 @@ button[aria-pressed="true"] {
   white-space: nowrap;
 }
 
+.lane-color {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lane-color[hidden] {
+  display: none;
+}
+
+.lane-color > span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+.lane-swatch,
+.connector-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.lane-swatch[aria-pressed="true"],
+.connector-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#lane-color,
+#connector-color {
+  width: 28px;
+  height: 22px;
+  padding: 1px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
 .sep {
   width: 1px;
   height: 18px;

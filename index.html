@@ -30,6 +30,16 @@
         <option value="end" data-ui="ends-end">One arrow</option>
         <option value="both" data-ui="ends-both">Two arrows</option>
       </select>
+      <div id="connector-color-wrap" class="lane-color" hidden>
+        <span data-ui="connector-color">Color</span>
+        <button type="button" class="connector-swatch" data-color="" data-ui-title="connector-color-default" title="Default (black)" style="background:#1c1915"></button>
+        <button type="button" class="connector-swatch" data-color="#184e86" data-ui-title="connector-color-blue" title="Blue" style="background:#184e86"></button>
+        <button type="button" class="connector-swatch" data-color="#7dbe8a" data-ui-title="lane-color-green" title="Green" style="background:#7dbe8a"></button>
+        <button type="button" class="connector-swatch" data-color="#e2b15a" data-ui-title="lane-color-amber" title="Amber" style="background:#e2b15a"></button>
+        <button type="button" class="connector-swatch" data-color="#e08b8b" data-ui-title="lane-color-rose" title="Rose" style="background:#e08b8b"></button>
+        <button type="button" class="connector-swatch" data-color="#a894d4" data-ui-title="lane-color-violet" title="Violet" style="background:#a894d4"></button>
+        <input id="connector-color" type="color" value="#1c1915" data-ui-label="connector-color-custom" data-ui-title="connector-color-custom" aria-label="Custom connector color" title="Custom connector color">
+      </div>
       <button id="tool-bus" type="button" aria-pressed="false" data-ui="bus-tool" data-ui-title="bus-title" title="Bus (B). Drag a bar, then drop a symbol on it.">Bus</button>
       <span class="sep" aria-hidden="true"></span>
       <button id="undo" type="button" data-ui="undo" data-ui-title="undo-title" title="Undo (Ctrl+Z)" disabled>Undo</button>
@@ -37,6 +47,16 @@
       <span class="sep" aria-hidden="true"></span>
       <button id="arrange" type="button" data-ui="arrange" data-ui-title="arrange-title" title="Arrange shapes and connectors (Ctrl+Shift+L)">Arrange</button>
       <button id="lane" type="button" data-ui="lane" data-ui-title="lane-title" title="Add a swimlane (L). Click again for the next row. Shift-click adds a column.">Swimlane</button>
+      <div id="lane-color-wrap" class="lane-color" hidden>
+        <span data-ui="lane-color">Color</span>
+        <button type="button" class="lane-swatch" data-color="" data-ui-title="lane-color-default" title="Default lane color" style="background:#e6eef6"></button>
+        <button type="button" class="lane-swatch" data-color="#7eafd6" data-ui-title="lane-color-blue" title="Blue" style="background:#7eafd6"></button>
+        <button type="button" class="lane-swatch" data-color="#7dbe8a" data-ui-title="lane-color-green" title="Green" style="background:#7dbe8a"></button>
+        <button type="button" class="lane-swatch" data-color="#e2b15a" data-ui-title="lane-color-amber" title="Amber" style="background:#e2b15a"></button>
+        <button type="button" class="lane-swatch" data-color="#e08b8b" data-ui-title="lane-color-rose" title="Rose" style="background:#e08b8b"></button>
+        <button type="button" class="lane-swatch" data-color="#a894d4" data-ui-title="lane-color-violet" title="Violet" style="background:#a894d4"></button>
+        <input id="lane-color" type="color" value="#e6eef6" data-ui-label="lane-color-custom" data-ui-title="lane-color-custom" aria-label="Custom lane color" title="Custom lane color">
+      </div>
       <button id="legend" type="button" data-ui="legend" data-ui-title="legend-title" title="Add a legend of the symbols on this page">Legend</button>
       <button id="align-left" type="button" data-ui="align-left" data-ui-title="align-title" title="Align the left edges of the selected shapes">Align left</button>
       <button id="space-even" type="button" data-ui="space" data-ui-title="space-title" title="Space the selected shapes evenly">Space</button>
@@ -72,7 +92,7 @@
       <h2 data-ui="shapes">Shapes</h2>
       <input id="shape-search" type="search" data-ui-placeholder="search-placeholder" data-ui-label="search-label" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
       <div id="masters"></div>
-      <p class="hint" data-ui="hint">Drag a shape onto the page. Shift-click selects several. Ctrl+C, Ctrl+V, and Ctrl+D copy them. Drop a symbol on a bus to add a tap. Double-click to edit text.</p>
+      <p class="hint" data-ui="hint">Drag a shape onto the page. Ctrl-click or Shift-click selects several, and dragging one moves them together. Ctrl+C, Ctrl+V, and Ctrl+D copy them. Drop a symbol on a bus to add a tap. Double-click to edit text.</p>
     </aside>
     <div id="canvas-wrap" class="canvas-wrap">
       <svg id="canvas" data-ui-label="canvas" aria-label="Diagram canvas"></svg>

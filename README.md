@@ -53,9 +53,9 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
 | | |
 | --- | --- |
 | Select (V) | move a shape, or resize it from a corner |
-| Connector (C) | drag from a port to a port. The menu beside it sets no arrow, one arrow, or two arrows. Automatic keeps one arrow on a flowchart and none on an AREI wire. |
+| Connector (C) | drag from a port to a port. The menu beside it sets no arrow, one arrow, or two arrows. Automatic keeps one arrow on a flowchart and none on an AREI wire. Select a connector and use Color to change that line. With no color chosen, the line stays black. |
 | Bus (B) | drag a horizontal bar. Drop a symbol on the bar to add a tap and a wire. |
-| Shift-click | add or remove a shape from the selection |
+| Ctrl-click or Shift-click | add or remove a shape from the selection. Drag one selected shape and the others move with it. |
 | Align left | line up the left edges of the selected shapes |
 | Space | space the selected shapes evenly |
 | Ctrl+C, Ctrl+V, Ctrl+D | copy, paste, and duplicate the selection |
@@ -67,7 +67,7 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
 | Wheel, + and − | zoom |
 | Fit | fit the whole diagram in the window |
 | Arrange | lay the flowchart out from top to bottom (Ctrl+Shift+L). Swimlanes stay where they are. |
-| Swimlane | add a process lane (L). Click again for the next row. Shift-click, or Shift+L, adds a column. Double-click the name to rename it. Steps inside the lane move with it. |
+| Swimlane | add a process lane (L). Click again for the next row. Shift-click, or Shift+L, adds a column. Double-click the name to rename it. Select a lane and use Color to give that lane its own color. Steps inside the lane move with it. |
 | Legend | add a key of every symbol used on the page, in the bottom right corner. Click it again to refresh the key. |
 | Language | English, Nederlands, or Français. Buttons, messages, shape names, and the legend follow the choice. Text you type on a shape stays as you wrote it. English is the default. |
 | Undo / Redo | Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z |
@@ -129,6 +129,6 @@ A saved diagram is JSON:
 app: "Misio"
 title: "Misio"
 version: 1
-shapes: id, type, x, y, w, h, text, and for a swimlane optionally axis (`row` or `column`)
-connectors: id, fromId, fromPort, toId, toPort, text, and optionally ends (`none`, `end`, or `both`)
+shapes: id, type, x, y, w, h, text, and for a swimlane optionally axis (`row` or `column`) and color (`#rrggbb`)
+connectors: id, fromId, fromPort, toId, toPort, text, and optionally ends (`none`, `end`, or `both`) and color (`#rrggbb`)
 ```

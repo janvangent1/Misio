@@ -52,9 +52,13 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
                         two arrows. Automatic keeps one arrow on a
                         flowchart and none on an AREI wire. With a
                         connector selected, the menu changes that connector.
+                        Color changes that line. With no color chosen,
+                        the line stays black.
     Bus (B)             drag a horizontal bar. Drop a symbol on the bar
                         to add a tap and a wire.
-    Shift-click         add or remove a shape from the selection
+    Ctrl or Shift-click add or remove a shape from the selection.
+                        Drag one selected shape and the others move
+                        with it.
     Align left          line up the left edges of the selected shapes
     Space               space the selected shapes evenly
     Ctrl+C, Ctrl+V      copy and paste the selection. Ctrl+D duplicates it.
@@ -69,8 +73,9 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
                         (Ctrl+Shift+L). Swimlanes stay where they are.
     Swimlane            add a process lane (L). Click again for the next
                         row. Shift-click, or Shift+L, adds a column.
-                        Double-click the name to rename it. Steps inside
-                        the lane move with it.
+                        Double-click the name to rename it. Select a lane
+                        and use Color to give that lane its own color.
+                        Steps inside the lane move with it.
     Legend              add a key of every symbol used on the page,
                         in the bottom right corner. Click it again
                         to refresh the key.
@@ -143,5 +148,6 @@ A saved diagram is JSON:
     title: "Misio"
     version: 1
     shapes: id, type, x, y, w, h, text. A swimlane may also
-            set axis to "row" or "column".
-    connectors: id, fromId, fromPort, toId, toPort, text, ends
+            set axis to "row" or "column", and color to "#rrggbb".
+    connectors: id, fromId, fromPort, toId, toPort, text, ends.
+                A connector may also set color to "#rrggbb".
