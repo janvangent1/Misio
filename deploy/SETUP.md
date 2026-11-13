@@ -15,6 +15,8 @@ The deployer writes two things:
 - the site files in `/home/pi/misio`
 - the systemd unit `/etc/systemd/system/misio.service`
 
+HTTP and HTTPS are the same service. Cloudflare had been keeping a separate copy of the stylesheet for each, so each upload adds a new version to the stylesheet and script links. Both addresses then load the files just uploaded.
+
 It leaves nginx, cloudflared, regenboog, and trackwise as it found them. Regenboog stays on port 3000 (pm2). TrackWise stays on port 8000 (systemd). Misio uses port 8765. Reports stay in `reports.json` on the Pi, and the admin page is `/admin.html`. The first sign-in is user `admin` and password `100`. A later deploy does not upload `reports.json` or `admin.json`, so those stay on the Pi.
 
 ## One-time Cloudflare hostname

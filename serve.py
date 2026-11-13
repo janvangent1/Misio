@@ -127,6 +127,13 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
+    def end_headers(self):
+        # css and js are cached by Cloudflare per scheme. no-cache keeps
+        # http:// and https:// on the files just deployed.
+        if not getattr(self, "_cache_set", False):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path in PRIVATE_FILES:
@@ -254,6 +261,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self._cache_set = True
         self.send_header("Cache-Control", "no-store")
         if cookie:
             self.send_header("Set-Cookie", f"{SESSION_COOKIE}={cookie}; HttpOnly; SameSite=Lax; Path=/")

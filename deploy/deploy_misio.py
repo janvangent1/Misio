@@ -25,6 +25,7 @@ import re
 import shlex
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -70,6 +71,8 @@ NEIGHBOR_PORTS = {
 }
 NEIGHBOR_UNITS = ("cloudflared", "trackwise", "nginx")
 
+HTML_FILES = {"index.html", "admin.html"}
+VERSIONED_EXT = {".css", ".js", ".svg", ".ico", ".png"}
 SERVICE_NAME = "misio"
 DEFAULT_PORT = 8765
 DEFAULT_DOMAIN = "misio.jbouquet.be"
@@ -247,10 +250,37 @@ def _mkdirs(sftp, remote_dir):
             sftp.mkdir(current)
 
 
+def versioned_html(text, stamp):
+    """Point stylesheet and script links at a new URL.
+
+    Cloudflare caches css and js separately for http and https. The page
+    itself is not cached, so a new query on those links makes both schemes
+    fetch the files just uploaded.
+    """
+
+    def repl(match):
+        attr, quote, url = match.group(1), match.group(2), match.group(3)
+        path = url.split("?", 1)[0].split("#", 1)[0]
+        if "://" in url or url.startswith("//"):
+            return match.group(0)
+        if Path(path).suffix.lower() not in VERSIONED_EXT:
+            return match.group(0)
+        base, _, fragment = url.partition("#")
+        if "?" in base:
+            return match.group(0)
+        updated = f"{base}?v={stamp}"
+        if fragment:
+            updated = f"{updated}#{fragment}"
+        return f"{attr}={quote}{updated}{quote}"
+
+    return re.sub(r"""\b(href|src)=(["'])([^"']+)\2""", repl, text)
+
+
 def upload_site(ssh, remote_dir, log):
     missing = [name for name in SITE_FILES if not (PROJECT_ROOT / name).is_file()]
     if missing:
         raise RuntimeError("Missing site files: " + ", ".join(missing))
+    stamp = time.strftime("%Y%m%d%H%M%S")
     sftp = ssh.client.open_sftp()
     try:
         _mkdirs(sftp, remote_dir)
@@ -258,9 +288,15 @@ def upload_site(ssh, remote_dir, log):
             local = PROJECT_ROOT / name
             remote = f"{remote_dir}/{name}"
             log(f"  upload {name}")
-            sftp.put(str(local), remote)
+            if name in HTML_FILES:
+                text = versioned_html(local.read_text(encoding="utf-8"), stamp)
+                with sftp.file(remote, "wb") as handle:
+                    handle.write(text.encode("utf-8"))
+            else:
+                sftp.put(str(local), remote)
     finally:
         sftp.close()
+    log(f"  asset version {stamp} so http and https both load this upload")
 
 
 def parse_snapshot(text):
