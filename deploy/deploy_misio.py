@@ -13,7 +13,7 @@ This script does not edit nginx or cloudflared, and it does not
 restart regenboog or trackwise.
 
 Usage:
-  py -3 deploy/deploy_misio.py
+  deploy/.venv/Scripts/python deploy/deploy_misio.py
 """
 
 from __future__ import annotations
@@ -81,7 +81,10 @@ try:
     import paramiko
 except ImportError:
     print("paramiko is not installed.")
-    print("Install it with:  py -3 -m pip install -r deploy/requirements.txt")
+    print("From the Misio folder:")
+    print("  py -3 -m venv deploy/.venv")
+    print("  deploy/.venv/Scripts/python -m pip install -r deploy/requirements.txt")
+    print("  deploy/.venv/Scripts/python deploy/deploy_misio.py")
     sys.exit(1)
 
 

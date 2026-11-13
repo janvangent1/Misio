@@ -12,3 +12,4 @@ errors.json.tmp
 .DS_Store
 Thumbs.db
 deploy/deploy_config.json
+deploy/.venv/

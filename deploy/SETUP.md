@@ -42,8 +42,9 @@ Then open `https://misio.jbouquet.be`.
 ## Deploy from this PC
 
 ```powershell
-py -3 -m pip install -r deploy/requirements.txt
-py -3 deploy/deploy_misio.py
+py -3 -m venv deploy/.venv
+deploy/.venv/Scripts/python -m pip install -r deploy/requirements.txt
+deploy/.venv/Scripts/python deploy/deploy_misio.py
 ```
 
 Fill in the Pi's SSH host, user, and password (or a key). **Deploy and start** uploads the site and installs the service.
