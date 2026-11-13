@@ -524,8 +524,8 @@ function drawWaterSymbol(parent, shape, paint) {
       g.line(20, 29, 20, 38);
       break;
     case "h2o-valve":
-      g.poly([[4, 12], [20, 20], [4, 28]], false);
-      g.poly([[36, 12], [20, 20], [36, 28]], false);
+      g.poly([[4, 12], [20, 20], [4, 28], [4, 12]], false);
+      g.poly([[36, 12], [20, 20], [36, 28], [36, 12]], false);
       g.line(20, 20, 20, 6);
       g.line(14, 6, 26, 6);
       break;
@@ -627,6 +627,49 @@ window.MisioVehicle = {
   draw: drawVehicleSymbol,
   iconBox: schemeIconBox,
   ports: {
+    "veh-battery": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 36, y: 20, dir: "right" },
+    ],
+    "veh-ground": [{ id: "top", x: 20, y: 4, dir: "top" }],
+    "veh-fuse": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "veh-relay": [
+      { id: "top", x: 20, y: 4, dir: "top" },
+      { id: "right", x: 34, y: 20, dir: "right" },
+      { id: "bottom", x: 20, y: 36, dir: "bottom" },
+      { id: "left", x: 6, y: 20, dir: "left" },
+    ],
+    "veh-switch": [
+      { id: "left", x: 2, y: 26, dir: "left" },
+      { id: "right", x: 33.6, y: 26, dir: "right" },
+    ],
+    "veh-lamp": [
+      { id: "top", x: 20, y: 8, dir: "top" },
+      { id: "right", x: 32, y: 20, dir: "right" },
+      { id: "bottom", x: 20, y: 32, dir: "bottom" },
+      { id: "left", x: 8, y: 20, dir: "left" },
+    ],
+    "veh-horn": [
+      { id: "left", x: 6, y: 20, dir: "left" },
+      { id: "right", x: 33, y: 20, dir: "right" },
+    ],
+    "veh-motor": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "veh-alternator": [
+      { id: "top", x: 20, y: 7, dir: "top" },
+      { id: "right", x: 33, y: 20, dir: "right" },
+      { id: "bottom", x: 20, y: 33, dir: "bottom" },
+      { id: "left", x: 7, y: 20, dir: "left" },
+    ],
+    "veh-coil": [
+      { id: "left", x: 2, y: 22, dir: "left" },
+      { id: "right", x: 38, y: 22, dir: "right" },
+    ],
     "veh-ecu": [
       { id: "n1", x: 4, y: 14, dir: "left" },
       { id: "n2", x: 4, y: 20, dir: "left" },
@@ -634,6 +677,18 @@ window.MisioVehicle = {
       { id: "n4", x: 36, y: 14, dir: "right" },
       { id: "n5", x: 36, y: 20, dir: "right" },
       { id: "n6", x: 36, y: 26, dir: "right" },
+    ],
+    "veh-sensor": [
+      { id: "top", x: 20, y: 8, dir: "top" },
+      { id: "bottom", x: 20, y: 36, dir: "bottom" },
+    ],
+    "veh-plug": [
+      { id: "top", x: 20, y: 2, dir: "top" },
+      { id: "bottom", x: 20, y: 36, dir: "bottom" },
+    ],
+    "veh-connector": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
     ],
   },
 };
@@ -736,6 +791,76 @@ window.MisioAir = {
       { id: "n2", x: 18, y: 6, dir: "top" },
       { id: "n3", x: 36, y: 20, dir: "right" },
     ],
+    "air-compressor": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "air-tank": [
+      { id: "top", x: 20, y: 4, dir: "top" },
+      { id: "bottom", x: 20, y: 36, dir: "bottom" },
+    ],
+    "air-filter": [
+      { id: "top", x: 20, y: 4, dir: "top" },
+      { id: "right", x: 34, y: 20, dir: "right" },
+      { id: "bottom", x: 20, y: 36, dir: "bottom" },
+      { id: "left", x: 6, y: 20, dir: "left" },
+    ],
+    "air-regulator": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "air-gauge": [
+      { id: "top", x: 20, y: 5, dir: "top" },
+      { id: "bottom", x: 20, y: 38, dir: "bottom" },
+    ],
+    "air-check": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "air-cylinder": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "air-cylinder-sa": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "air-lubricator": [
+      { id: "left", x: 2, y: 16, dir: "left" },
+      { id: "right", x: 38, y: 16, dir: "right" },
+    ],
+    "air-throttle": [
+      { id: "n1", x: 2, y: 11, dir: "left" },
+      { id: "n2", x: 38, y: 11, dir: "right" },
+      { id: "n3", x: 2, y: 29, dir: "left" },
+      { id: "n4", x: 38, y: 29, dir: "right" },
+    ],
+    "air-relief": [{ id: "left", x: 2, y: 28, dir: "left" }],
+    "air-softstart": [
+      { id: "left", x: 2, y: 28, dir: "left" },
+      { id: "top", x: 24, y: 7, dir: "top" },
+      { id: "bottom", x: 24, y: 36, dir: "bottom" },
+    ],
+    "air-pswitch": [{ id: "bottom", x: 20, y: 38, dir: "bottom" }],
+    "air-solenoid": [{ id: "bottom", x: 20, y: 36, dir: "bottom" }],
+    "air-reed": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 39, y: 12, dir: "right" },
+    ],
+    "air-cup": [{ id: "top", x: 20, y: 2, dir: "top" }],
+    "air-motor": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "air-silencer": [{ id: "top", x: 20, y: 2, dir: "top" }],
+    "air-coupling": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "air-vibrator": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 34, y: 20, dir: "right" },
+    ],
   },
 };
 
@@ -758,6 +883,51 @@ window.MisioWater = {
   draw: drawWaterSymbol,
   iconBox: schemeIconBox,
   ports: {
+    "h2o-pump": [
+      { id: "top", x: 20, y: 5, dir: "top" },
+      { id: "bottom", x: 20, y: 38, dir: "bottom" },
+    ],
+    "h2o-valve": [
+      { id: "left", x: 4, y: 20, dir: "left" },
+      { id: "right", x: 36, y: 20, dir: "right" },
+      { id: "top", x: 20, y: 6, dir: "top" },
+    ],
+    "h2o-check": [
+      { id: "left", x: 2, y: 20, dir: "left" },
+      { id: "right", x: 38, y: 20, dir: "right" },
+    ],
+    "h2o-tank": [
+      { id: "top", x: 20, y: 4, dir: "top" },
+      { id: "right", x: 30, y: 20, dir: "right" },
+      { id: "bottom", x: 20, y: 36, dir: "bottom" },
+      { id: "left", x: 10, y: 20, dir: "left" },
+    ],
+    "h2o-boiler": [
+      { id: "top", x: 20, y: 4, dir: "top" },
+      { id: "right", x: 32, y: 13, dir: "right" },
+      { id: "bottom", x: 20, y: 22, dir: "bottom" },
+      { id: "left", x: 8, y: 13, dir: "left" },
+    ],
+    "h2o-radiator": [
+      { id: "top", x: 20, y: 10, dir: "top" },
+      { id: "bottom", x: 20, y: 30, dir: "bottom" },
+    ],
+    "h2o-tap": [{ id: "bottom", x: 8, y: 30, dir: "bottom" }],
+    "h2o-filter": [
+      { id: "top", x: 20, y: 6, dir: "top" },
+      { id: "bottom", x: 20, y: 34, dir: "bottom" },
+    ],
+    "h2o-meter": [
+      { id: "top", x: 20, y: 4, dir: "top" },
+      { id: "bottom", x: 20, y: 36, dir: "bottom" },
+    ],
+    "h2o-drain": [{ id: "top", x: 20, y: 8, dir: "top" }],
+    "h2o-exchanger": [
+      { id: "top", x: 20, y: 6, dir: "top" },
+      { id: "right", x: 34, y: 20, dir: "right" },
+      { id: "bottom", x: 20, y: 34, dir: "bottom" },
+      { id: "left", x: 6, y: 20, dir: "left" },
+    ],
     "h2o-mixer": [
       { id: "n1", x: 6, y: 32, dir: "bottom" },
       { id: "n2", x: 34, y: 32, dir: "bottom" },

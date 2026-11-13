@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Misio reports</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body.admin-page {
+      overflow: auto;
+      user-select: text;
+      display: block;
+    }
+    .admin {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 28px 20px 48px;
+    }
+    .admin h1 { margin: 0 0 4px; font-size: 22px; }
+    .admin .lead { margin: 0 0 18px; color: var(--muted); }
+    .admin form, .admin-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .admin label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+    .admin input {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+      background: var(--canvas);
+      color: var(--ink);
+    }
+    .admin-note { color: var(--muted); font-size: 13px; min-height: 1.2em; }
+    .admin-warn {
+      background: var(--warn);
+      border: 1px solid var(--warn-line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+    }
+    .report-item {
+      border-top: 1px solid var(--line);
+      padding: 12px 0;
+    }
+    .report-item:first-child { border-top: 0; padding-top: 0; }
+    .report-item header {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      justify-content: space-between;
+    }
+    .report-item h2 { margin: 0; font-size: 14px; }
+    .report-meta { color: var(--muted); font-size: 12px; }
+    .report-item p { white-space: pre-wrap; margin: 8px 0; }
+    .admin a { color: var(--accent); }
+  </style>
+</head>
+<body class="admin-page">
+  <main class="admin">
+    <h1>Misio reports</h1>
+    <p class="lead"><a href="index.html">Back to the editor</a></p>
+
+    <form id="login-form">
+      <label>Username <input id="login-user" type="text" autocomplete="username" required value="admin"></label>
+      <label>Password <input id="login-password" type="password" autocomplete="current-password" required></label>
+      <p id="login-note" class="admin-note" role="status"></p>
+      <button type="submit">Sign in</button>
+    </form>
+
+    <section id="desk" hidden>
+      <p id="first-password" class="admin-warn" hidden>The first-time password is still in use. Choose a new one below.</p>
+      <div class="admin-card">
+        <h2>Reports</h2>
+        <div id="report-list"></div>
+      </div>
+      <form id="password-form">
+        <h2>Change password</h2>
+        <label>Current password <input id="password-current" type="password" autocomplete="current-password" required></label>
+        <label>New password <input id="password-new" type="password" autocomplete="new-password" required minlength="3"></label>
+        <p id="password-note" class="admin-note" role="status"></p>
+        <button type="submit">Save password</button>
+        <button id="logout" type="button">Sign out</button>
+      </form>
+    </section>
+  </main>
+  <script>
+    const loginForm = document.getElementById("login-form");
+    const desk = document.getElementById("desk");
+    const list = document.getElementById("report-list");
+    const firstPassword = document.getElementById("first-password");
+
+    function showLogin(message) {
+      desk.hidden = true;
+      loginForm.hidden = false;
+      document.getElementById("login-note").textContent = message || "";
+    }
+
+    async function loadReports() {
+      const response = await fetch("/api/reports", { credentials: "same-origin" });
+      if (response.status === 401) {
+        showLogin();
+        return;
+      }
+      const data = await response.json();
+      loginForm.hidden = true;
+      desk.hidden = false;
+      const reports = data.reports || [];
+      list.replaceChildren();
+      if (!reports.length) {
+        const empty = document.createElement("p");
+        empty.className = "admin-note";
+        empty.textContent = "No reports yet.";
+        list.appendChild(empty);
+        return;
+      }
+      for (const report of reports) {
+        const item = document.createElement("article");
+        item.className = "report-item";
+        const header = document.createElement("header");
+        const title = document.createElement("h2");
+        title.textContent = report.kind === "request" ? "Request" : "Bug";
+        const meta = document.createElement("span");
+        meta.className = "report-meta";
+        meta.textContent = [report.created, report.name].filter(Boolean).join(" · ");
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => removeReport(report.id));
+        header.append(title, meta, remove);
+        const body = document.createElement("p");
+        body.textContent = report.text || "";
+        item.append(header, body);
+        list.appendChild(item);
+      }
+    }
+
+    async function removeReport(id) {
+      const response = await fetch("/api/reports/" + encodeURIComponent(id), {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (response.ok) loadReports();
+    }
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const response = await fetch("/api/admin/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user: document.getElementById("login-user").value,
+          password: document.getElementById("login-password").value,
+        }),
+      });
+      if (!response.ok) {
+        document.getElementById("login-note").textContent = "The name or password is wrong.";
+        return;
+      }
+      const data = await response.json();
+      document.getElementById("login-password").value = "";
+      firstPassword.hidden = !data.mustChange;
+      loadReports();
+    });
+
+    document.getElementById("password-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const note = document.getElementById("password-note");
+      const response = await fetch("/api/admin/password", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          current: document.getElementById("password-current").value,
+          password: document.getElementById("password-new").value,
+        }),
+      });
+      if (response.status === 401) {
+        note.textContent = "The current password is wrong.";
+        return;
+      }
+      if (!response.ok) {
+        note.textContent = "Use at least 3 characters.";
+        return;
+      }
+      document.getElementById("password-current").value = "";
+      document.getElementById("password-new").value = "";
+      firstPassword.hidden = true;
+      note.textContent = "The password is saved.";
+    });
+
+    document.getElementById("logout").addEventListener("click", async () => {
+      await fetch("/api/admin/logout", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}" });
+      showLogin();
+    });
+
+    fetch("/api/admin/session", { credentials: "same-origin" })
+      .then((response) => response.json())
+      .then((data) => {
+        if (!data.ok) return;
+        firstPassword.hidden = !data.mustChange;
+        loadReports();
+      })
+      .catch(() => {
+        showLogin("Open this page from the Misio server.");
+      });
+  </script>
+</body>
+</html>

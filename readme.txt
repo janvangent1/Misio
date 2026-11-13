@@ -35,13 +35,21 @@ Requirements: Python 3 with tkinter, which is included in the standard Windows
 install. The editor itself is a static page (index.html, styles.css, app.js)
 and needs no extra packages.
 
-To open the page from another computer, serve this folder on the network.
-A Raspberry Pi can do that:
+To open the page from another computer, run the server on the network.
+A Raspberry Pi can do that, from this folder:
 
-    python3 -m http.server 8765 --bind 0.0.0.0
+    python3 serve.py --host 0.0.0.0 --port 8765
 
-Then open http://<this-computer>:8765/. Drawings still download as JSON in
-the browser that made them.
+Then open http://<the-pi>:8765/. Reports sent from the editor are saved in
+reports.json in this folder, and the admin reads them at /admin.html.
+The first sign-in is user admin and password 100. Change that password
+after signing in. The new password stays in admin.json. Both files stay
+on the Pi across a reboot. Run serve.py as the same user each time so it
+can keep writing them.
+
+python3 -m http.server only hands out the page. It does not store reports.
+
+Drawings still download as JSON in the browser that made them.
 
 
 Draw
@@ -147,7 +155,8 @@ Files
     network.js          network diagram symbols
     schematic.js        vehicle, pneumatic, and plumbing symbols
     visio.js            open and save Visio .vsdx files
-    misio.py            the launcher
+    misio.py            the Windows launcher, for trying the page on a PC
+    serve.py            the server for a Raspberry Pi. Stores reports
     favicon.svg         the browser icon
     favicon.ico         the same icon for older browsers
     eendraadschema.json the example single-line diagram

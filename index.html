@@ -60,6 +60,8 @@
       <button id="legend" type="button" data-ui="legend" data-ui-title="legend-title" title="Add a legend of the symbols on this page">Legend</button>
       <button id="align-left" type="button" data-ui="align-left" data-ui-title="align-title" title="Align the left edges of the selected shapes">Align left</button>
       <button id="space-even" type="button" data-ui="space" data-ui-title="space-title" title="Space the selected shapes evenly">Space</button>
+      <button id="snap" type="button" aria-pressed="true" data-ui="snap" data-ui-title="snap-title" title="Snap shapes and lines to the grid">Snap</button>
+      <button id="rotate" type="button" data-ui="rotate" data-ui-title="rotate-title" title="Turn the selected shapes a quarter turn (R). Shift-click turns the other way.">Rotate</button>
       <span class="sep" aria-hidden="true"></span>
       <button id="zoom-out" type="button" data-ui-title="zoom-out" title="Zoom out">−</button>
       <span id="zoom-label">100%</span>
@@ -75,6 +77,7 @@
       <button id="export-visio" type="button" data-ui="export-visio" data-ui-title="export-visio-title" title="Export a Visio drawing (.vsdx)">Export Visio</button>
       <button id="export-svg" type="button" data-ui="export-svg">Export SVG</button>
       <button id="export-pdf" type="button" data-ui="export-pdf" data-ui-title="export-pdf-title" title="Open a one-page sheet and print it to PDF">Export PDF</button>
+      <button id="report" type="button" data-ui="report" data-ui-title="report-title" title="Send a bug or a request">Report</button>
       <span class="sep" aria-hidden="true"></span>
       <select id="lang" data-ui-label="language" aria-label="Language">
         <option value="en">English</option>
@@ -85,6 +88,31 @@
       <input id="visio-input" type="file" accept=".vsdx,application/vnd.ms-visio.drawing" hidden>
     </div>
   </header>
+  <dialog id="report-dialog" class="report-dialog">
+    <form id="report-form">
+      <h2 data-ui="report">Report</h2>
+      <label>
+        <span data-ui="report-kind">Kind</span>
+        <select id="report-kind">
+          <option value="bug" data-ui="report-bug">Bug</option>
+          <option value="request" data-ui="report-request">Request</option>
+        </select>
+      </label>
+      <label>
+        <span data-ui="report-name">Name</span>
+        <input id="report-name" type="text" maxlength="80" data-ui-placeholder="report-name-placeholder" placeholder="Optional" autocomplete="name">
+      </label>
+      <label>
+        <span data-ui="report-message">What should we know?</span>
+        <textarea id="report-text" required maxlength="4000"></textarea>
+      </label>
+      <p id="report-note" class="report-note" role="status"></p>
+      <div class="report-actions">
+        <button id="report-cancel" type="button" data-ui="cancel">Cancel</button>
+        <button type="submit" data-ui="report-send">Send</button>
+      </div>
+    </form>
+  </dialog>
   <div id="confirm" class="confirm" hidden>
     <span data-ui="clear-ask">Clear this diagram?</span>
     <button id="confirm-yes" type="button" data-ui="clear">Clear</button>

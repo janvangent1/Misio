@@ -88,6 +88,7 @@ const state = {
   editor: null,
   spaceDown: false,
   lang: storedLanguage(),
+  snap: storedSnap(),
   connectorEnds: "auto",
   clipboard: null,
 };
@@ -102,6 +103,14 @@ function el(name, attrs, parent) {
   }
   if (parent) parent.appendChild(node);
   return node;
+}
+
+function storedSnap() {
+  try {
+    return localStorage.getItem("misio-snap") !== "off";
+  } catch (error) {
+    return true;
+  }
 }
 
 function storedLanguage() {
@@ -150,6 +159,10 @@ function snap(value) {
   return Math.round(value / GRID) * GRID;
 }
 
+function maybeSnap(value) {
+  return state.snap ? snap(value) : value;
+}
+
 function cloneDoc(doc) {
   return {
     shapes: doc.shapes.map(shapeRecord),
@@ -172,6 +185,7 @@ function shapeRecord(shape) {
     const color = laneHex(shape.color);
     if (color) record.color = color;
   }
+  if (shapeAngle(shape)) record.rotation = shapeAngle(shape);
   return record;
 }
 
@@ -320,7 +334,105 @@ function mapIconPoint(pack, shape, nx, ny) {
   return { x: ox + (nx / 40) * size, y: oy + (ny / 40) * size };
 }
 
-function portPoint(shape, port) {
+function iconFrame(pack, shape) {
+  const box = pack.iconBox(shape);
+  const size = Math.min(box.w, box.h);
+  return {
+    x: box.x + (box.w - size) / 2,
+    y: box.y + (box.h - size) / 2,
+    size,
+  };
+}
+
+function sideOnIcon(pack, shape, port) {
+  if (!pack || !pack.iconBox) return null;
+  if (port !== "top" && port !== "right" && port !== "bottom" && port !== "left") return null;
+  const frame = iconFrame(pack, shape);
+  const mid = frame.size / 2;
+  if (port === "top") return { x: frame.x + mid, y: frame.y };
+  if (port === "right") return { x: frame.x + frame.size, y: frame.y + mid };
+  if (port === "bottom") return { x: frame.x + mid, y: frame.y + frame.size };
+  return { x: frame.x, y: frame.y + mid };
+}
+
+function shapeAngle(shape) {
+  const turn = Number(shape && shape.rotation);
+  return turn === 90 || turn === 180 || turn === 270 ? turn : 0;
+}
+
+function shapeCenter(shape) {
+  return { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 };
+}
+
+function contentShape(shape) {
+  const angle = shapeAngle(shape);
+  const quarter = angle === 90 || angle === 270;
+  const w = quarter ? shape.h : shape.w;
+  const h = quarter ? shape.w : shape.h;
+  const center = shapeCenter(shape);
+  return {
+    ...shape,
+    x: center.x - w / 2,
+    y: center.y - h / 2,
+    w,
+    h,
+    rotation: 0,
+    turn: angle,
+  };
+}
+
+function turnPoint(point, center, angle) {
+  if (!angle) return point;
+  const rad = angle * Math.PI / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
+function turnVector(vector, angle) {
+  if (!angle) return vector;
+  const rad = angle * Math.PI / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const [dx, dy] = vector;
+  return [dx * cos - dy * sin, dx * sin + dy * cos];
+}
+
+function outlinePort(shape, port) {
+  const { x, y, w, h, type } = shape;
+  const right = x + w;
+  const bottom = y + h;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  if (type === "data") {
+    const slant = Math.min(28, w * 0.18);
+    if (port === "left") return { x: x + slant / 2, y: cy };
+    if (port === "right") return { x: right - slant / 2, y: cy };
+  }
+  if (type === "manual") {
+    const slant = Math.min(22, h * 0.28);
+    if (port === "top") return { x: cx, y: y + slant / 2 };
+  }
+  if (type === "document") {
+    const wave = Math.min(16, h * 0.18);
+    if (port === "bottom") return { x: cx, y: bottom - wave * 0.3 };
+  }
+  if (type === "bus") {
+    if (port === "left") return { x, y: cy };
+    if (port === "right") return { x: right, y: cy };
+    if (port === "top" || port === "bottom") return { x: cx, y: cy };
+  }
+  return null;
+}
+
+function localPortPoint(shape, port) {
+  const onOutline = outlinePort(shape, port);
+  if (onOutline) return onOutline;
   const found = symbolPorts(shape);
   if (found) {
     const item = found.ports.find((entry) => entry.id === port);
@@ -329,6 +441,9 @@ function portPoint(shape, port) {
       return mapIconPoint(found.pack, shape, item.x, item.y);
     }
   }
+  const pack = symbolPack(shape.type);
+  const onIcon = sideOnIcon(pack, shape, port);
+  if (onIcon) return onIcon;
   switch (port) {
     case "top": return { x: shape.x + shape.w / 2, y: shape.y };
     case "right": return { x: shape.x + shape.w, y: shape.y + shape.h / 2 };
@@ -337,11 +452,16 @@ function portPoint(shape, port) {
   }
 }
 
+function portPoint(shape, port) {
+  const local = contentShape(shape);
+  return turnPoint(localPortPoint(local, port), shapeCenter(shape), local.turn);
+}
+
 function portVectorOf(shape, port) {
   const found = shape && symbolPorts(shape);
   const item = found && found.ports.find((entry) => entry.id === port);
-  if (item && PORT_VECTOR[item.dir]) return PORT_VECTOR[item.dir];
-  return PORT_VECTOR[port] || PORT_VECTOR.bottom;
+  const base = item && PORT_VECTOR[item.dir] ? PORT_VECTOR[item.dir] : (PORT_VECTOR[port] || PORT_VECTOR.bottom);
+  return turnVector(base, shapeAngle(shape));
 }
 
 function dedupe(points) {
@@ -523,6 +643,8 @@ function drawAreiLabel(parent, shape) {
     const tspan = el("tspan", { x: cx, dy: index === 0 ? 0 : lineHeight }, node);
     tspan.textContent = line;
   });
+  const spinY = caption ? anchorY : anchorY + ((lines.length - 1) * lineHeight) / 2;
+  keepTextUpright(node, cx, spinY, shape.turn);
 }
 
 function drawLabel(parent, shape) {
@@ -549,6 +671,7 @@ function drawLabel(parent, shape) {
     const tspan = el("tspan", { x: cx, dy: index === 0 ? 0 : lineHeight }, text);
     tspan.textContent = line;
   });
+  keepTextUpright(text, cx, cy, shape.turn);
 }
 
 let plainDraw = false;
@@ -918,13 +1041,26 @@ function drawDecisionSides(parent, shape) {
     ...caption,
   }, parent);
   no.textContent = ui("no");
+  keepTextUpright(yes, shape.x + shape.w / 2 + 8, shape.y + shape.h + 16, shape.turn);
+  keepTextUpright(no, shape.x + shape.w + 8, shape.y + shape.h / 2 - 8, shape.turn);
+}
+
+function keepTextUpright(node, x, y, angle) {
+  if (!angle) return;
+  node.setAttribute("transform", `rotate(${-angle} ${x} ${y})`);
 }
 
 function drawShapeBody(parent, shape) {
   const paint = shapePaint(shape);
-  drawOutline(parent, shape, paint);
-  if (shape.type !== "lane") drawLabel(parent, shape);
-  if (shape.type === "decision") drawDecisionSides(parent, shape);
+  const local = contentShape(shape);
+  let target = parent;
+  if (local.turn) {
+    const center = shapeCenter(shape);
+    target = el("g", { transform: `rotate(${local.turn} ${center.x} ${center.y})` }, parent);
+  }
+  drawOutline(target, local, paint);
+  if (local.type !== "lane") drawLabel(target, local);
+  if (local.type === "decision") drawDecisionSides(target, local);
   const label = shape.type === "legend"
     ? ui("legend")
     : shape.type === "decision"
@@ -1156,9 +1292,9 @@ function drawPreview(parent) {
     return;
   }
   if (gesture.type === "bus" && gesture.pointer) {
-    const x1 = Math.min(gesture.sx, gesture.pointer.x);
-    const x2 = Math.max(gesture.sx, gesture.pointer.x);
-    const y = gesture.sy;
+    const x1 = maybeSnap(Math.min(gesture.sx, gesture.pointer.x));
+    const x2 = maybeSnap(Math.max(gesture.sx, gesture.pointer.x));
+    const y = maybeSnap(gesture.sy);
     el("line", {
       x1, y1: y, x2, y2: y,
       fill: "none",
@@ -1476,8 +1612,8 @@ function addShape(master, world) {
   const shape = {
     id: uid(),
     type: master.type,
-    x: snap(world.x - master.w / 2),
-    y: snap(world.y - master.h / 2),
+    x: maybeSnap(world.x - master.w / 2),
+    y: maybeSnap(world.y - master.h / 2),
     w: master.w,
     h: master.h,
     text: master.text,
@@ -1497,10 +1633,10 @@ function resizeShape(shape, corner, point) {
   let y = shape.origin.y;
   let edgeX = right;
   let edgeY = bottom;
-  if (corner.includes("e")) edgeX = snap(point.x);
-  if (corner.includes("s")) edgeY = snap(point.y);
-  if (corner.includes("w")) x = snap(point.x);
-  if (corner.includes("n")) y = snap(point.y);
+  if (corner.includes("e")) edgeX = maybeSnap(point.x);
+  if (corner.includes("s")) edgeY = maybeSnap(point.y);
+  if (corner.includes("w")) x = maybeSnap(point.x);
+  if (corner.includes("n")) y = maybeSnap(point.y);
   if (shape.type === "bus") {
     y = shape.origin.y;
     edgeY = bottom;
@@ -1982,6 +2118,18 @@ function fitView() {
   render();
 }
 
+function setSnap(on, announce) {
+  state.snap = Boolean(on);
+  const button = document.getElementById("snap");
+  if (button) button.setAttribute("aria-pressed", state.snap ? "true" : "false");
+  try {
+    localStorage.setItem("misio-snap", state.snap ? "on" : "off");
+  } catch (error) {
+    // The button still shows the choice if storage is blocked.
+  }
+  if (announce) setStatus(ui(state.snap ? "snap-on" : "snap-off"));
+}
+
 function nudge(dx, dy) {
   const ids = new Set(selectedShapeIds());
   if (!ids.size) return;
@@ -1993,8 +2141,8 @@ function nudge(dx, dy) {
   const before = serialize();
   for (const id of ids) {
     const shape = getShape(id);
-    shape.x = snap(shape.x + dx);
-    shape.y = snap(shape.y + dy);
+    shape.x = maybeSnap(shape.x + dx);
+    shape.y = maybeSnap(shape.y + dy);
   }
   commitChange(before);
   render();
@@ -2120,6 +2268,7 @@ function sanitizeShape(raw) {
   shape.w = Math.max(MIN_SIZE, shape.w);
   shape.h = Math.max(MIN_SIZE, shape.h);
   if (shape.type === "text" && raw.bare) shape.bare = true;
+  if (shapeAngle(raw)) shape.rotation = shapeAngle(raw);
   if (shape.type === "lane") {
     shape.axis = raw.axis === "column" ? "column" : "row";
     const color = laneHex(raw.color);
@@ -2491,7 +2640,7 @@ function onPointerDown(event) {
   }
   if (state.editor) closeEditor(true);
   if (state.tool === "bus") {
-    state.gesture = { type: "bus", sx: snap(world.x), sy: snap(world.y), pointer: world, before: serialize() };
+    state.gesture = { type: "bus", sx: maybeSnap(world.x), sy: maybeSnap(world.y), pointer: world, before: serialize() };
     wrap.setPointerCapture(event.pointerId);
     render();
     return;
@@ -2637,13 +2786,13 @@ function onPointerMove(event) {
       gesture.armed = true;
       wrap.setPointerCapture(gesture.pointerId);
     }
-    const dx = snap(world.x - gesture.start.x);
-    const dy = snap(world.y - gesture.start.y);
+    const dx = world.x - gesture.start.x;
+    const dy = world.y - gesture.start.y;
     for (const [id, origin] of Object.entries(gesture.origins)) {
       const shape = getShape(id);
       if (!shape) continue;
-      shape.x = origin.x + dx;
-      shape.y = origin.y + dy;
+      shape.x = maybeSnap(origin.x + dx);
+      shape.y = maybeSnap(origin.y + dy);
     }
     render();
     return;
@@ -2687,13 +2836,22 @@ function applyConnectorEnds(value) {
   setStatus(ui("ends-set-" + value));
 }
 
+function busVertical(shape) {
+  const angle = shapeAngle(shape);
+  return angle === 90 || angle === 270;
+}
+
 function busAt(point) {
   let best = null;
   let bestDistance = 22;
   for (const shape of state.doc.shapes) {
     if (shape.type !== "bus") continue;
-    if (point.x < shape.x || point.x > shape.x + shape.w) continue;
-    const distance = Math.abs(point.y - (shape.y + shape.h / 2));
+    const vertical = busVertical(shape);
+    if (vertical) {
+      if (point.y < shape.y || point.y > shape.y + shape.h) continue;
+    } else if (point.x < shape.x || point.x > shape.x + shape.w) continue;
+    const center = shapeCenter(shape);
+    const distance = vertical ? Math.abs(point.x - center.x) : Math.abs(point.y - center.y);
     if (distance <= bestDistance) {
       best = shape;
       bestDistance = distance;
@@ -2703,20 +2861,26 @@ function busAt(point) {
 }
 
 function tapOnBus(bus, point, fromId) {
-  const cy = bus.y + bus.h / 2;
-  const centerX = Math.min(Math.max(point.x, bus.x + 8), bus.x + bus.w - 8);
+  const vertical = busVertical(bus);
+  const center = shapeCenter(bus);
+  const along = vertical
+    ? Math.min(Math.max(point.y, bus.y + 8), bus.y + bus.h - 8)
+    : Math.min(Math.max(point.x, bus.x + 8), bus.x + bus.w - 8);
+  const cx = vertical ? center.x : along;
+  const cy = vertical ? along : center.y;
   const source = getShape(fromId);
-  const sourceY = source ? source.y + source.h / 2 : point.y;
-  const port = sourceY <= cy ? "top" : "bottom";
+  const port = vertical
+    ? ((source ? source.x + source.w / 2 : point.x) <= cx ? "left" : "right")
+    : ((source ? source.y + source.h / 2 : point.y) <= cy ? "top" : "bottom");
   const existing = state.doc.shapes.find((shape) =>
     shape.type === "arei-node"
-    && Math.abs(shape.x + shape.w / 2 - centerX) <= 14
+    && Math.abs(shape.x + shape.w / 2 - cx) <= 14
     && Math.abs(shape.y + shape.h / 2 - cy) <= 14);
   if (existing) return { id: existing.id, port };
   const node = {
     id: uid(),
     type: "arei-node",
-    x: centerX - 20,
+    x: cx - 20,
     y: cy - 20,
     w: 40,
     h: 40,
@@ -2730,16 +2894,26 @@ function wireDroppedShape(shape, point) {
   if (shape.type === "bus" || shape.type === "arei-node" || shape.type === "legend" || shape.type === "lane") return;
   const bus = busAt(point);
   if (!bus) return;
-  const cy = bus.y + bus.h / 2;
-  const above = point.y <= cy;
+  const center = shapeCenter(bus);
+  const vertical = busVertical(bus);
   const gap = GRID;
-  shape.x = snap(point.x - shape.w / 2);
-  shape.y = above ? snap(cy - gap - shape.h) : snap(cy + gap);
-  const tap = tapOnBus(bus, { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 }, shape.id);
+  let fromPort = "bottom";
+  if (vertical) {
+    const left = point.x <= center.x;
+    shape.x = left ? maybeSnap(center.x - gap - shape.w) : maybeSnap(center.x + gap);
+    shape.y = maybeSnap(point.y - shape.h / 2);
+    fromPort = left ? "right" : "left";
+  } else {
+    const above = point.y <= center.y;
+    shape.x = maybeSnap(point.x - shape.w / 2);
+    shape.y = above ? maybeSnap(center.y - gap - shape.h) : maybeSnap(center.y + gap);
+    fromPort = above ? "bottom" : "top";
+  }
+  const tap = tapOnBus(bus, shapeCenter(shape), shape.id);
   state.doc.connectors.push({
     id: uid(),
     fromId: shape.id,
-    fromPort: above ? "bottom" : "top",
+    fromPort,
     toId: tap.id,
     toPort: tap.port,
     text: "",
@@ -2799,14 +2973,14 @@ function finishGesture() {
     if (addConnector(gesture.fromId, gesture.fromPort, target)) commitChange(gesture.before);
   } else if (gesture.type === "bus") {
     const end = gesture.pointer || { x: gesture.sx, y: gesture.sy };
-    const x1 = snap(Math.min(gesture.sx, end.x));
-    const x2 = snap(Math.max(gesture.sx, end.x));
+    const x1 = maybeSnap(Math.min(gesture.sx, end.x));
+    const x2 = maybeSnap(Math.max(gesture.sx, end.x));
     if (x2 - x1 >= MIN_SIZE) {
       const shape = {
         id: uid(),
         type: "bus",
         x: x1,
-        y: snap(gesture.sy) - 20,
+        y: maybeSnap(gesture.sy) - 20,
         w: x2 - x1,
         h: 40,
         text: "",
@@ -2958,8 +3132,8 @@ function stampCopies(records, dx, dy) {
     const shape = {
       id: uid(),
       type: raw.type,
-      x: snap(Number(raw.x) + dx),
-      y: snap(Number(raw.y) + dy),
+      x: maybeSnap(Number(raw.x) + dx),
+      y: maybeSnap(Number(raw.y) + dy),
       w: raw.w,
       h: raw.h,
       text: raw.text,
@@ -2969,6 +3143,7 @@ function stampCopies(records, dx, dy) {
       const color = laneHex(raw.color);
       if (color) shape.color = color;
     }
+    if (shapeAngle(raw)) shape.rotation = shapeAngle(raw);
     map.set(String(raw.id), shape.id);
     state.doc.shapes.push(shape);
     ids.push(shape.id);
@@ -3030,6 +3205,31 @@ function duplicateSelection() {
   setStatus(count === 1 ? ui("duplicated-one") : ui("duplicated-many", { n: count }));
 }
 
+function rotateSelection(clockwise) {
+  const shapes = selectedShapeIds().map(getShape).filter((shape) => shape && shape.type !== "lane" && shape.type !== "legend");
+  if (!shapes.length) {
+    setStatus(ui("rotate-none"));
+    return;
+  }
+  const before = serialize();
+  const step = clockwise ? 90 : 270;
+  for (const shape of shapes) {
+    const center = shapeCenter(shape);
+    const w = shape.h;
+    const h = shape.w;
+    shape.w = w;
+    shape.h = h;
+    shape.x = center.x - w / 2;
+    shape.y = center.y - h / 2;
+    const angle = (shapeAngle(shape) + step) % 360;
+    if (angle) shape.rotation = angle;
+    else delete shape.rotation;
+  }
+  commitChange(before);
+  render();
+  setStatus(ui(clockwise ? "rotate-cw" : "rotate-ccw"));
+}
+
 function alignLeft() {
   const shapes = selectedShapeIds().map(getShape).filter(Boolean);
   if (shapes.length < 2) {
@@ -3063,8 +3263,8 @@ function spaceEven() {
   const before = serialize();
   sorted.forEach((shape, index) => {
     const at = start + (end - start) * (sorted.length === 1 ? 0 : index / (sorted.length - 1));
-    if (horizontal) shape.x = snap(at - shape.w / 2);
-    else shape.y = snap(at - shape.h / 2);
+    if (horizontal) shape.x = maybeSnap(at - shape.w / 2);
+    else shape.y = maybeSnap(at - shape.h / 2);
   });
   if (!commitChange(before)) {
     setStatus(ui("already-spaced"));
@@ -3300,7 +3500,13 @@ function onKeyDown(event) {
     addLane(event.shiftKey ? "column" : "row");
     return;
   }
-  const step = GRID;
+  if (event.key === "r" || event.key === "R") {
+    if (event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    rotateSelection(!event.shiftKey);
+    return;
+  }
+  const step = state.snap ? GRID : 1;
   if (event.key === "ArrowLeft") { event.preventDefault(); nudge(-step, 0); }
   else if (event.key === "ArrowRight") { event.preventDefault(); nudge(step, 0); }
   else if (event.key === "ArrowUp") { event.preventDefault(); nudge(0, -step); }
@@ -3325,7 +3531,44 @@ busButton.addEventListener("click", () => setTool("bus"));
 endsSelect.addEventListener("change", () => applyConnectorEnds(endsSelect.value));
 document.getElementById("align-left").addEventListener("click", alignLeft);
 document.getElementById("space-even").addEventListener("click", spaceEven);
+document.getElementById("snap").addEventListener("click", () => setSnap(!state.snap, true));
+document.getElementById("rotate").addEventListener("click", (event) => rotateSelection(!event.shiftKey));
+setSnap(state.snap, false);
 document.getElementById("export-pdf").addEventListener("click", exportPdf);
+document.getElementById("report").addEventListener("click", () => {
+  document.getElementById("report-note").textContent = "";
+  document.getElementById("report-dialog").showModal();
+  document.getElementById("report-text").focus();
+});
+document.getElementById("report-cancel").addEventListener("click", () => {
+  document.getElementById("report-dialog").close();
+});
+document.getElementById("report-form").addEventListener("submit", sendReport);
+
+async function sendReport(event) {
+  event.preventDefault();
+  const note = document.getElementById("report-note");
+  note.textContent = "";
+  const payload = {
+    kind: document.getElementById("report-kind").value,
+    name: document.getElementById("report-name").value,
+    text: document.getElementById("report-text").value,
+  };
+  try {
+    const response = await fetch("/api/reports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(String(response.status));
+    document.getElementById("report-text").value = "";
+    document.getElementById("report-name").value = "";
+    document.getElementById("report-dialog").close();
+    setStatus(ui("report-sent"));
+  } catch (error) {
+    note.textContent = ui("report-failed");
+  }
+}
 shapeSearch.addEventListener("input", () => buildMasters());
 undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);

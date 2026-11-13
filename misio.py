@@ -13,22 +13,15 @@ import time
 import traceback
 import webbrowser
 from datetime import datetime
-from http.server import SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer
 from pathlib import Path
-from socketserver import ThreadingMixIn
 from urllib.error import URLError
 from urllib.request import urlopen
 
-try:
-    from http.server import ThreadingHTTPServer
-except ImportError:  # Python older than 3.7
-    from http.server import HTTPServer
-
-    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
-        daemon_threads = True
-
 import tkinter as tk
 from tkinter import ttk
+
+from serve import Handler
 
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
@@ -92,30 +85,6 @@ def _close_socket(sock):
     except OSError:
         pass
 
-
-class Handler(SimpleHTTPRequestHandler):
-    """Serve the Misio folder and report each request to the launcher."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(ROOT), **kwargs)
-
-    def log_message(self, fmt, *args):
-        if getattr(self.server, "released", False):
-            return
-        code = args[1] if len(args) > 1 else "-"
-        level = logging.INFO
-        try:
-            if int(code) >= 400:
-                level = logging.WARNING
-        except (TypeError, ValueError):
-            level = logging.INFO
-        self.server.launcher.log(level, "%s %s", self.address_string(), fmt % args)
-        self.server.launcher.note_request()
-
-    def log_error(self, fmt, *args):
-        if getattr(self.server, "released", False):
-            return
-        self.server.launcher.log(logging.ERROR, fmt % args)
 
 
 class Launcher(tk.Tk):

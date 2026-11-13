@@ -58,12 +58,12 @@ function areiPen(parent, paint, box) {
       "stroke-dasharray": dashed ? `${Math.max(2, size / 10)} ${Math.max(1.6, size / 14)}` : null,
     }, parent);
   }
-  function poly(points, filled) {
+  function poly(points, filled, strokeWidth) {
     const d = points.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join(" ");
     el("path", {
       d: filled ? `${d} Z` : d,
       fill: filled ? stroke : "none",
-      stroke, "stroke-width": sw, "stroke-linejoin": "round", "stroke-linecap": "round",
+      stroke, "stroke-width": strokeWidth == null ? sw : strokeWidth, "stroke-linejoin": "round", "stroke-linecap": "round",
     }, parent);
   }
   function arc(x1, y1, rx, ry, x2, y2, sweep) {
@@ -200,7 +200,7 @@ function areiSwitch(g, opt) {
   }
   if (opt.dimmer) {
     g.circle(12, 30, 4.2, false);
-    g.line(15, 27, 24, 16);
+    g.line(15, 27, 22, 18);
     g.poly([[22, 18], [36, 8], [26, 6], [22, 18]]);
     return;
   }
@@ -234,9 +234,11 @@ function areiLight(g, opt) {
 }
 
 function areiBreaker(g) {
-  g.line(24, 2, 24, 38);
-  g.line(24, 10, 15, 18);
-  g.poly([[7, 18], [15, 18], [15, 26], [7, 26]], true);
+  // Open contact: upper stem, a gap, a tilted block, then the lower stem.
+  g.line(24, 2, 24, 13.7);
+  g.poly([[12.9, 15.8], [17.4, 14.2], [19.1, 18.7], [14.6, 20.4]], true, 0);
+  g.line(19.1, 18.7, 24, 26);
+  g.line(24, 26, 24, 38);
 }
 
 function areiComb(g, x, base, up) {
@@ -858,24 +860,166 @@ const AREI_MASTERS = [
   areiMaster("arei-domotica", "arei-domotica", "Control unit"),
 ];
 
+function areiPort(id, x, y, dir) {
+  return { id, x, y, dir: dir || id };
+}
+
+function areiAcross(y, x1, x2) {
+  return [areiPort("left", x1, y, "left"), areiPort("right", x2, y, "right")];
+}
+
+function areiDown(x, y1, y2) {
+  return [areiPort("top", x, y1, "top"), areiPort("bottom", x, y2, "bottom")];
+}
+
+function areiBox(x, y, w, h) {
+  return [
+    areiPort("top", x + w / 2, y, "top"),
+    areiPort("right", x + w, y + h / 2, "right"),
+    areiPort("bottom", x + w / 2, y + h, "bottom"),
+    areiPort("left", x, y + h / 2, "left"),
+  ];
+}
+
+function areiRing(cx, cy, r) {
+  return [
+    areiPort("top", cx, cy - r, "top"),
+    areiPort("right", cx + r, cy, "right"),
+    areiPort("bottom", cx, cy + r, "bottom"),
+    areiPort("left", cx - r, cy, "left"),
+  ];
+}
+
 window.MisioArei = {
   categories: AREI_CATEGORIES,
   masters: AREI_MASTERS,
   draw: drawAreiSymbol,
   iconBox: areiIconBox,
   ports: {
+    "arei-dc": areiAcross(20, 6, 34),
+    "arei-ac": areiAcross(20, 6, 34),
+    "arei-ac1": areiAcross(22, 14, 36),
+    "arei-ac3": areiAcross(22, 14, 36),
+    "arei-board": areiBox(4, 12, 32, 16),
     "arei-board-feeds": [
-      { id: "n1", x: 20, y: 36, dir: "bottom" },
-      { id: "n2", x: 10, y: 4, dir: "top" },
-      { id: "n3", x: 15, y: 4, dir: "top" },
-      { id: "n4", x: 20, y: 4, dir: "top" },
-      { id: "n5", x: 25, y: 4, dir: "top" },
-      { id: "n6", x: 30, y: 4, dir: "top" },
+      areiPort("n1", 20, 36, "bottom"),
+      areiPort("n2", 10, 4, "top"),
+      areiPort("n3", 15, 4, "top"),
+      areiPort("n4", 20, 4, "top"),
+      areiPort("n5", 25, 4, "top"),
+      areiPort("n6", 30, 4, "top"),
     ],
+    "arei-box": areiRing(20, 20, 11),
+    "arei-junction": areiRing(20, 20, 10),
+    "arei-junction-line": areiAcross(20, 1, 39),
+    "arei-node": areiAcross(20, 0, 40).concat(areiDown(20, 0, 40)),
     "arei-branchbox": [
-      { id: "n1", x: 20, y: 2, dir: "top" },
-      { id: "n2", x: 14, y: 36, dir: "bottom" },
-      { id: "n3", x: 26, y: 36, dir: "bottom" },
+      areiPort("n1", 20, 2, "top"),
+      areiPort("n2", 14, 36, "bottom"),
+      areiPort("n3", 26, 36, "bottom"),
     ],
+    "arei-earth-link": areiAcross(20, 1, 39),
+    "arei-line": areiAcross(20, 2, 38),
+    "arei-line-buried": areiAcross(26, 4, 36),
+    "arei-line-overhead": areiAcross(20, 2, 38),
+    "arei-line-conduit": areiAcross(28, 2, 38),
+    "arei-line-bundle": areiAcross(26, 2, 38),
+    "arei-line-inwall": areiAcross(28, 2, 38),
+    "arei-line-onwall": areiAcross(12, 2, 38),
+    "arei-line-conduit-wall": areiAcross(28, 2, 38),
+    "arei-line-two": areiAcross(20, 2, 38),
+    "arei-line-n": areiAcross(22, 2, 38),
+    "arei-cond-3": areiAcross(22, 4, 36),
+    "arei-cond-n": areiAcross(24, 4, 36),
+    "arei-fuse": areiAcross(20, 1, 39),
+    "arei-breaker": areiDown(24, 2, 38),
+    "arei-rcd": areiDown(24, 2, 38),
+    "arei-rcbo": areiDown(24, 2, 38),
+    "arei-earth": [areiPort("top", 20, 2, "top")],
+    "arei-switch": [areiPort("top", 32, 8, "top"), areiPort("bottom", 16, 32, "bottom")],
+    "arei-switch-lamp": [areiPort("top", 32, 8, "top"), areiPort("bottom", 15, 33, "bottom")],
+    "arei-switch-delay": [areiPort("top", 32, 8, "top"), areiPort("bottom", 16, 32, "bottom")],
+    "arei-switch-2p": [areiPort("top", 32, 8, "top"), areiPort("bottom", 16, 32, "bottom")],
+    "arei-switch-3p": [areiPort("top", 32, 8, "top"), areiPort("bottom", 16, 32, "bottom")],
+    "arei-switch-series": [areiPort("left", 8, 10, "left"), areiPort("right", 32, 10, "right")],
+    "arei-switch-two-way": [areiPort("bottom", 7, 33, "bottom"), areiPort("top", 33, 7, "top")],
+    "arei-switch-two-way-2p": [areiPort("bottom", 7, 33, "bottom"), areiPort("top", 33, 7, "top")],
+    "arei-switch-cross": [
+      areiPort("n1", 8, 8, "top"),
+      areiPort("n2", 32, 8, "top"),
+      areiPort("n3", 8, 32, "bottom"),
+      areiPort("n4", 32, 32, "bottom"),
+    ],
+    "arei-dimmer": [areiPort("top", 36, 8, "top"), areiPort("left", 7.8, 30, "left")],
+    "arei-pull": [areiPort("top", 24, 14, "top"), areiPort("left", 7.8, 28, "left")],
+    "arei-switch-pilot": [areiPort("top", 36, 10, "top"), areiPort("left", 3, 24, "left")],
+    "arei-push": areiRing(20, 20, 11),
+    "arei-push-lamp": areiRing(20, 20, 11),
+    "arei-push-glass": areiRing(20, 20, 11),
+    "arei-timer": areiBox(4, 12, 32, 16),
+    "arei-clock": areiBox(2, 12, 36, 16),
+    "arei-impulse": areiBox(4, 12, 32, 16),
+    "arei-thermostat": areiBox(2, 13, 36, 14),
+    "arei-lock-check": areiBox(10, 6, 20, 28),
+    "arei-sensor": areiBox(12, 4, 16, 32),
+    "arei-switch-board": areiBox(4, 2, 32, 36),
+    "arei-socket": [areiPort("left", 2, 6, "left")],
+    "arei-socket-multi": [areiPort("left", 2, 4, "left")],
+    "arei-socket-h": [areiPort("left", 2, 6, "left")],
+    "arei-socket-pe": [areiPort("left", 2, 6, "left")],
+    "arei-socket-child": [areiPort("left", 2, 6, "left")],
+    "arei-socket-pe-child": [areiPort("left", 2, 6, "left")],
+    "arei-socket-switch": [areiPort("left", 2, 6, "left")],
+    "arei-socket-lock": [areiPort("left", 2, 6, "left")],
+    "arei-socket-shave": [areiPort("left", 2, 6, "left")],
+    "arei-data": [areiPort("left", 2, 20, "left")],
+    "arei-socket-board": areiBox(2, 2, 36, 36),
+    "arei-light": [areiPort("left", 1, 22, "left")],
+    "arei-light-wall": areiDown(32, 8, 36),
+    "arei-light-fluo": areiAcross(20, 8, 32),
+    "arei-light-fluo-3": areiAcross(20, 4, 34),
+    "arei-projector": [areiPort("top", 8, 10, "top"), areiPort("bottom", 8, 30, "bottom")],
+    "arei-projector-narrow": [areiPort("top", 6, 10, "top"), areiPort("bottom", 6, 30, "bottom"), areiPort("right", 38, 16, "right")],
+    "arei-projector-wide": [areiPort("top", 6, 12, "top"), areiPort("bottom", 6, 28, "bottom")],
+    "arei-light-switch": [areiPort("left", 1, 22, "left")],
+    "arei-light-safety": [areiPort("left", 1, 22, "left")],
+    "arei-light-safety-auto": areiBox(8, 6, 26, 28),
+    "arei-ballast": areiBox(4, 12, 32, 16),
+    "arei-bell": [areiPort("left", 2, 20, "left")],
+    "arei-buzzer": [areiPort("left", 2, 20, "left")],
+    "arei-horn": [areiPort("left", 2, 20, "left")],
+    "arei-siren": [areiPort("left", 2, 20, "left")],
+    "arei-watch": areiRing(20, 20, 12),
+    "arei-master-clock": [areiPort("top", 18, 4, "top")].concat(areiBox(4, 10, 32, 18).filter((port) => port.id !== "top")),
+    "arei-door-lock": [areiPort("left", 2, 20, "left")],
+    "arei-fan": [areiPort("left", 1, 20, "left")],
+    "arei-heater": [areiPort("left", 1, 20, "left")],
+    "arei-heater-storage": [areiPort("left", 1, 20, "left")],
+    "arei-heater-fan": [areiPort("left", 1, 20, "left")],
+    "arei-boiler": areiRing(20, 20, 14),
+    "arei-boiler-storage": areiRing(20, 20, 15),
+    "arei-appliance": [areiPort("left", 1, 20, "left")],
+    "arei-cooker": [areiPort("left", 1, 20, "left")],
+    "arei-microwave": [areiPort("left", 1, 20, "left")],
+    "arei-oven": [areiPort("left", 1, 20, "left")],
+    "arei-washer": [areiPort("left", 1, 20, "left")],
+    "arei-dryer": [areiPort("left", 1, 20, "left")],
+    "arei-dishwasher": [areiPort("left", 1, 20, "left")],
+    "arei-fridge": [areiPort("left", 1, 20, "left")],
+    "arei-freezer": [areiPort("left", 1, 20, "left")],
+    "arei-motor": [areiPort("left", 1, 20, "left"), areiPort("right", 34, 20, "right")],
+    "arei-ev": [
+      areiPort("top", 15, 2, "top"),
+      areiPort("bottom", 15, 35, "bottom"),
+      areiPort("left", 6, 16, "left"),
+      areiPort("right", 30, 7, "right"),
+    ],
+    "arei-meter": [areiPort("left", 1, 20, "left")],
+    "arei-transformer": areiAcross(20, 1, 39),
+    "arei-pv": areiBox(8, 6, 24, 28),
+    "arei-rectifier": areiBox(8, 6, 24, 28),
+    "arei-inverter": areiBox(8, 6, 24, 28),
+    "arei-chopper": areiBox(8, 6, 24, 28),
+    "arei-domotica": areiBox(8, 2, 24, 36),
   },
 };
