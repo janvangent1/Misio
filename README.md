@@ -36,19 +36,41 @@ Requirements: Python 3 with tkinter, which is included in the standard Windows
 install. The editor itself is a static page (`index.html`, `styles.css`,
 `app.js`) and needs no extra packages.
 
-To open the page from another computer, run the server on the network.
-A Raspberry Pi can do that, from this folder:
+## On a Raspberry Pi
+
+The page other people open is served by `serve.py`. `misio.py` is only the
+window on a Windows PC.
+
+`deploy/SETUP.md` is the Pi setup. The service listens on the Pi, and
+Cloudflare publishes it. From this folder you can also run:
 
 ```
 python3 serve.py --host 0.0.0.0 --port 8765
 ```
 
-Then open `http://<the-pi>:8765/`. Reports sent from the editor are saved in
-`reports.json` in this folder, and the admin reads them at `/admin.html`.
+Then open `http://<the-pi>:8765/`.
+
+The first visit shows a short notice. Accept stores one cookie and counts
+return visits, the browser, and the country Cloudflare reports. Refuse still
+opens the editor. That visit counts as a page open, not as a returning
+visitor. The drawing, the language, and snap stay in the browser either way.
+
+Report, in the top bar, sends a bug or a request. The words are stored as
+written. Admin, at the bottom of the shape list, opens `/admin.html`.
 The first sign-in is user `admin` and password `100`. Change that password
-after signing in. The new password stays in `admin.json`. Both files stay
-on the Pi across a reboot. Run `serve.py` as the same user each time so it
-can keep writing them.
+after signing in. The page then shows:
+
+- visitors over the past day, week, and month
+- browsers, and countries, counted once for each visitor who accepted
+- errors from the page and from the server
+- the reports, with Remove on each one
+
+`reports.json`, `usage.json`, `errors.json`, and `admin.json` stay next to
+`serve.py`. They are not in git. They remain after a reboot. Run the service
+as the same user each time so it can keep writing them. If the service is
+stopped, a report says it could not be saved. If the folder cannot be
+written, the admin page names the file and the reason, and the same line is
+in `journalctl -u misio`.
 
 `python3 -m http.server` only hands out the page. It does not store reports.
 
@@ -61,6 +83,8 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
 | | |
 | --- | --- |
 | Select (V) | move a shape, or resize it from a corner |
+| Snap | on by default. Shapes and lines sit on the grid. Turn it off to drag continuously. |
+| Rotate (R) | turn the selected shapes a quarter turn. Shift-click, or Shift+R, turns the other way. |
 | Connector (C) | drag from a port to a port. The menu beside it sets no arrow, one arrow, or two arrows. Automatic keeps one arrow on a flowchart and none on an AREI wire. Select a connector and use Color to change that line. With no color chosen, the line stays black. |
 | Bus (B) | drag a horizontal bar. Drop a symbol on the bar to add a tap and a wire. |
 | Ctrl-click or Shift-click | add or remove a shape. Hold Ctrl and drag a box to select everything inside it. Drag one selected shape and the others move with it. |
@@ -84,6 +108,7 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
 | Export Visio | download a `.vsdx` file Visio can open. Flowchart shapes stay shapes. Other symbols are drawn as pictures, and the Misio drawing is kept inside the file. |
 | Export SVG | download the drawing as misio.svg |
 | Export PDF | open one sheet, with the title and the drawing, and print it. Choose Save as PDF. |
+| Report | send a bug or a request. It is stored by `serve.py`. |
 
 Connectors stay orthogonal and stay glued to their ports when a shape moves.
 On a decision, Yes leaves the bottom and No leaves the right. Arrange keeps
@@ -130,7 +155,9 @@ Leave Arrange alone on that file: Arrange lays a page out as a flowchart.
 | `schematic.js` | vehicle, pneumatic, and plumbing symbols |
 | `visio.js` | open and save Visio `.vsdx` files |
 | `misio.py` | the Windows launcher, for trying the page on a PC |
-| `serve.py` | the server for a Raspberry Pi. Stores reports |
+| `serve.py` | the server. Stores reports, visits, and errors |
+| `admin.html` | the admin page |
+| `deploy/SETUP.md` | how to run it on the Raspberry Pi |
 | `favicon.svg`, `favicon.ico` | the browser icon |
 | `eendraadschema.json` | the example single-line diagram |
 | `screenshot.png` | the picture above |
@@ -142,6 +169,6 @@ A saved diagram is JSON:
 app: "Misio"
 title: "Misio"
 version: 1
-shapes: id, type, x, y, w, h, text, and for a swimlane optionally axis (`row` or `column`) and color (`#rrggbb`)
+shapes: id, type, x, y, w, h, text, optionally rotation (`90`, `180`, or `270`), and for a swimlane optionally axis (`row` or `column`) and color (`#rrggbb`)
 connectors: id, fromId, fromPort, toId, toPort, text, and optionally ends (`none`, `end`, or `both`) and color (`#rrggbb`)
 ```

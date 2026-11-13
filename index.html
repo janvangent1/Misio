@@ -120,12 +120,20 @@
     <button id="confirm-yes" type="button" data-ui="clear">Clear</button>
     <button id="confirm-no" type="button" data-ui="cancel">Cancel</button>
   </div>
+  <div id="cookie-notice" class="cookie-notice" hidden role="dialog" aria-labelledby="cookie-text">
+    <p id="cookie-text" data-ui="cookie-text">Misio uses one cookie to count return visits. The drawing stays in this browser either way.</p>
+    <div class="cookie-actions">
+      <button id="cookie-refuse" type="button" data-ui="cookie-refuse">Refuse</button>
+      <button id="cookie-accept" type="button" data-ui="cookie-accept">Accept</button>
+    </div>
+  </div>
   <div class="workspace">
     <aside class="stencil" data-ui-label="shapes-label" aria-label="Shapes">
       <h2 data-ui="shapes">Shapes</h2>
       <input id="shape-search" type="search" data-ui-placeholder="search-placeholder" data-ui-label="search-label" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
       <div id="masters"></div>
       <p class="hint" data-ui="hint">Drag a shape onto the page. Ctrl-click or Shift-click selects several, and dragging one moves them together. Ctrl+C, Ctrl+V, and Ctrl+D copy them. Drop a symbol on a bus to add a tap. Double-click to edit text.</p>
+      <a class="admin-link" href="admin.html" data-ui="admin" data-ui-title="admin-title" title="Use, errors, and reports">Admin</a>
     </aside>
     <div id="canvas-wrap" class="canvas-wrap">
       <svg id="canvas" data-ui-label="canvas" aria-label="Diagram canvas"></svg>

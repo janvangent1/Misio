@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Misio reports</title>
+  <title>Misio admin</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <style>
@@ -13,7 +13,7 @@
       display: block;
     }
     .admin {
-      max-width: 760px;
+      max-width: 880px;
       margin: 0 auto;
       padding: 28px 20px 48px;
     }
@@ -63,11 +63,66 @@
     .report-meta { color: var(--muted); font-size: 12px; }
     .report-item p { white-space: pre-wrap; margin: 8px 0; }
     .admin a { color: var(--accent); }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 16px;
+      margin-bottom: 14px;
+    }
+    .stat-grid strong { display: block; font-size: 18px; }
+    .stat-grid span { color: var(--muted); font-size: 12px; }
+    .range { display: flex; gap: 6px; }
+    .range button { padding: 4px 10px; font-size: 12px; }
+    .visit-chart { width: 100%; height: auto; display: block; }
+    .chart-legend {
+      display: flex;
+      gap: 16px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .chart-legend i {
+      display: inline-block;
+      width: 18px;
+      height: 3px;
+      margin-right: 6px;
+      border-radius: 2px;
+      vertical-align: middle;
+    }
+    .chart-legend .opens { background: #184e86; }
+    .chart-legend .visitors {
+      background: repeating-linear-gradient(90deg, #1d6b3a 0 6px, transparent 6px 10px);
+    }
+    .origin {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 8px;
+    }
+    .origin h3 { margin: 0 0 8px; font-size: 13px; }
+    .meter {
+      display: grid;
+      grid-template-columns: minmax(88px, 150px) 1fr 28px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      margin: 5px 0;
+    }
+    .meter-bar { height: 8px; background: var(--line); border-radius: 4px; }
+    .meter-bar span { display: block; height: 100%; border-radius: 4px; }
+    @media (max-width: 640px) {
+      .origin { grid-template-columns: 1fr; }
+    }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .card-head h2 { margin: 0; }
+    .error-item { border-top: 1px solid var(--line); padding: 10px 0; }
+    .error-item:first-child { border-top: 0; }
+    .error-item p { margin: 4px 0 0; white-space: pre-wrap; }
   </style>
 </head>
 <body class="admin-page">
   <main class="admin">
-    <h1>Misio reports</h1>
+    <h1>Misio admin</h1>
     <p class="lead"><a href="index.html">Back to the editor</a></p>
 
     <form id="login-form">
@@ -79,6 +134,41 @@
 
     <section id="desk" hidden>
       <p id="first-password" class="admin-warn" hidden>The first-time password is still in use. Choose a new one below.</p>
+      <div class="admin-card">
+        <div class="card-head">
+          <h2>Visitors</h2>
+          <div class="range" role="group" aria-label="History">
+            <button id="range-day" type="button" data-range="day" aria-pressed="true">Day</button>
+            <button id="range-week" type="button" data-range="week" aria-pressed="false">Week</button>
+            <button id="range-month" type="button" data-range="month" aria-pressed="false">Month</button>
+          </div>
+        </div>
+        <div id="range-summary" class="stat-grid"></div>
+        <svg id="visit-chart" class="visit-chart" viewBox="0 0 640 240" role="img" aria-label="Opens and visitors"></svg>
+        <p class="chart-legend"><span><i class="opens"></i>Opens</span><span><i class="visitors"></i>Visitors</span></p>
+      </div>
+      <div class="admin-card">
+        <h2>Use</h2>
+        <div id="stat-grid" class="stat-grid"></div>
+        <div class="origin">
+          <div>
+            <h3>Browsers</h3>
+            <div id="browser-list"></div>
+          </div>
+          <div>
+            <h3>Countries</h3>
+            <div id="country-list"></div>
+          </div>
+        </div>
+        <p class="admin-note">Each visitor is counted once. The country is the one Cloudflare reports for the public site.</p>
+      </div>
+      <div class="admin-card">
+        <div class="card-head">
+          <h2>Errors</h2>
+          <button id="clear-errors" type="button">Clear</button>
+        </div>
+        <div id="error-list"></div>
+      </div>
       <div class="admin-card">
         <h2>Reports</h2>
         <div id="report-list"></div>
@@ -97,7 +187,40 @@
     const loginForm = document.getElementById("login-form");
     const desk = document.getElementById("desk");
     const list = document.getElementById("report-list");
+    const statGrid = document.getElementById("stat-grid");
+    const browserList = document.getElementById("browser-list");
+    const countryList = document.getElementById("country-list");
+    const rangeSummary = document.getElementById("range-summary");
+    const visitChart = document.getElementById("visit-chart");
+    let usageData = {};
+    let chartRange = "day";
+    const errorList = document.getElementById("error-list");
     const firstPassword = document.getElementById("first-password");
+    const eventNames = {
+      save: "Drawings saved",
+      "export-svg": "SVG exports",
+      "export-pdf": "PDF exports",
+      "export-visio": "Visio exports",
+      "import-visio": "Visio imports",
+    };
+    const languageNames = { en: "English", nl: "Nederlands", fr: "Français" };
+
+    function emptyNote(parent, text) {
+      const note = document.createElement("p");
+      note.className = "admin-note";
+      note.textContent = text;
+      parent.appendChild(note);
+    }
+
+    function statCell(value, label) {
+      const cell = document.createElement("div");
+      const strong = document.createElement("strong");
+      strong.textContent = value;
+      const span = document.createElement("span");
+      span.textContent = label;
+      cell.append(strong, span);
+      return cell;
+    }
 
     function showLogin(message) {
       desk.hidden = true;
@@ -105,10 +228,192 @@
       document.getElementById("login-note").textContent = message || "";
     }
 
-    async function loadReports() {
-      const response = await fetch("/api/reports", { credentials: "same-origin" });
+    function svgEl(name, attrs) {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+      for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+      return node;
+    }
+
+    function chartLabel(at, range) {
+      const when = new Date(at);
+      if (Number.isNaN(when.getTime())) return "";
+      if (range === "day") return when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return when.toLocaleDateString([], { day: "numeric", month: "short" });
+    }
+
+    function showChart(range) {
+      chartRange = range;
+      for (const button of document.querySelectorAll(".range button")) {
+        button.setAttribute("aria-pressed", button.dataset.range === range ? "true" : "false");
+      }
+      const summary = (usageData.summary && usageData.summary[range]) || {};
+      rangeSummary.replaceChildren(
+        statCell(String(summary.opens || 0), "Opens"),
+        statCell(String(summary.visitors || 0), "Visitors"),
+        statCell(String(summary.new || 0), "New"),
+        statCell(String(summary.returning || 0), "Returning"),
+      );
+      const points = (usageData.series && usageData.series[range]) || [];
+      visitChart.replaceChildren();
+      if (!points.length) return;
+      const width = 640;
+      const height = 240;
+      const left = 36;
+      const right = 12;
+      const top = 16;
+      const bottom = 32;
+      const plotWidth = width - left - right;
+      const plotHeight = height - top - bottom;
+      const peak = Math.max(1, ...points.map((point) => Math.max(point.opens || 0, point.visitors || 0)));
+      const step = points.length === 1 ? 0 : plotWidth / (points.length - 1);
+      const xAt = (index) => left + index * step;
+      const yAt = (value) => top + plotHeight - (value / peak) * plotHeight;
+      for (let mark = 0; mark <= 4; mark += 1) {
+        const value = Math.round((peak * mark) / 4);
+        const y = yAt(value);
+        visitChart.appendChild(svgEl("line", { x1: left, y1: y, x2: width - right, y2: y, stroke: "#e2dcd2", "stroke-width": 1 }));
+        const label = svgEl("text", { x: left - 8, y: y + 4, "text-anchor": "end", fill: "#6f675e", "font-size": 11 });
+        label.textContent = String(value);
+        visitChart.appendChild(label);
+      }
+      const lineFor = (key) => points.map((point, index) => `${xAt(index)},${yAt(point[key] || 0)}`).join(" ");
+      const areaPath = svgEl("path", { d: `M${xAt(0)},${yAt(points[0].opens || 0)} ` + points.slice(1).map((point, index) => `L${xAt(index + 1)},${yAt(point.opens || 0)}`).join(" ") + ` L${xAt(points.length - 1)},${yAt(0)} L${xAt(0)},${yAt(0)} Z`, fill: "#184e86", "fill-opacity": "0.12" });
+      visitChart.appendChild(areaPath);
+      visitChart.appendChild(svgEl("polyline", { points: lineFor("opens"), fill: "none", stroke: "#184e86", "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      visitChart.appendChild(svgEl("polyline", { points: lineFor("visitors"), fill: "none", stroke: "#1d6b3a", "stroke-width": 2.5, "stroke-dasharray": "6 4", "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      const labelEvery = range === "week" ? 1 : range === "day" ? 4 : 5;
+      points.forEach((point, index) => {
+        const showLabel = index % labelEvery === 0 || (index === points.length - 1 && (points.length - 1) % labelEvery > 2);
+        if (showLabel) {
+          const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle";
+          const label = svgEl("text", { x: xAt(index), y: height - 8, "text-anchor": anchor, fill: "#6f675e", "font-size": 11 });
+          label.textContent = chartLabel(point.at, range);
+          visitChart.appendChild(label);
+        }
+        for (const [key, color] of [["opens", "#184e86"], ["visitors", "#1d6b3a"]]) {
+          if (!point[key]) continue;
+          const dot = svgEl("circle", { cx: xAt(index), cy: yAt(point[key]), r: points.length > 14 ? 2.4 : 3.2, fill: "#fffdfb", stroke: color, "stroke-width": 2 });
+          const title = svgEl("title", {});
+          const name = key === "opens" ? "opens" : "visitors";
+          title.textContent = `${chartLabel(point.at, range)}: ${point[key]} ${name}`;
+          dot.appendChild(title);
+          visitChart.appendChild(dot);
+        }
+      });
+    }
+
+    function showMeters(parent, counts, color) {
+      parent.replaceChildren();
+      const entries = Object.entries(counts || {}).filter((entry) => entry[1]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      if (!entries.length) {
+        emptyNote(parent, "No visitors yet.");
+        return;
+      }
+      const peak = Math.max(...entries.map((entry) => entry[1]), 1);
+      for (const [name, count] of entries) {
+        const row = document.createElement("div");
+        row.className = "meter";
+        const label = document.createElement("span");
+        label.textContent = name;
+        const bar = document.createElement("div");
+        bar.className = "meter-bar";
+        const fill = document.createElement("span");
+        fill.style.width = Math.max(4, Math.round((count / peak) * 100)) + "%";
+        fill.style.background = color;
+        bar.appendChild(fill);
+        const total = document.createElement("span");
+        total.textContent = String(count);
+        row.append(label, bar, total);
+        parent.appendChild(row);
+      }
+    }
+
+    function showUsage(usage) {
+      usageData = usage || {};
+      const languages = usageData.languages || {};
+      const events = usageData.events || {};
+      statGrid.replaceChildren(
+        statCell(String(usageData.opens || 0), "Pages opened"),
+        statCell(String(usageData.visitors || 0), "Visitors"),
+        statCell(usageData.lastOpen || "—", "Last open"),
+        statCell(String(languages.en || 0), languageNames.en),
+        statCell(String(languages.nl || 0), languageNames.nl),
+        statCell(String(languages.fr || 0), languageNames.fr),
+      );
+      for (const [event, label] of Object.entries(eventNames)) {
+        statGrid.appendChild(statCell(String(events[event] || 0), label));
+      }
+      showMeters(browserList, usageData.browsers, "#184e86");
+      showMeters(countryList, usageData.countries, "#1d6b3a");
+      showChart(chartRange);
+    }
+
+    function showErrors(errors) {
+      errorList.replaceChildren();
+      if (!errors.length) {
+        emptyNote(errorList, "No errors yet.");
+        return;
+      }
+      for (const error of errors) {
+        const item = document.createElement("article");
+        item.className = "error-item";
+        const meta = document.createElement("div");
+        meta.className = "report-meta";
+        const times = error.count > 1 ? " · " + error.count + " times" : "";
+        meta.textContent = (error.source === "page" ? "Page" : "Server") + " · " + (error.created || "") + times;
+        const body = document.createElement("p");
+        body.textContent = error.message || "";
+        item.append(meta, body);
+        if (error.detail) {
+          const detail = document.createElement("p");
+          detail.className = "report-meta";
+          detail.textContent = error.detail;
+          item.appendChild(detail);
+        }
+        errorList.appendChild(item);
+      }
+    }
+
+    const serviceDown = "The Misio service is not answering. On the Pi, check that the misio service is running.";
+
+    async function loadOverview() {
+      let response;
+      try {
+        response = await fetch("/api/admin/overview", { credentials: "same-origin" });
+      } catch (error) {
+        showLogin(serviceDown);
+        return;
+      }
       if (response.status === 401) {
         showLogin();
+        return;
+      }
+      if (!response.ok) {
+        showLogin(serviceDown);
+        return;
+      }
+      const data = await response.json();
+      showUsage(data.usage);
+      showErrors(data.errors || []);
+      const reports = data.reports || {};
+      statGrid.appendChild(statCell(String(reports.bug || 0), "Bugs"));
+      statGrid.appendChild(statCell(String(reports.request || 0), "Requests"));
+    }
+
+    async function loadReports() {
+      let response;
+      try {
+        response = await fetch("/api/reports", { credentials: "same-origin" });
+      } catch (error) {
+        showLogin(serviceDown);
+        return;
+      }
+      if (response.status === 401) {
+        showLogin();
+        return;
+      }
+      if (!response.ok) {
+        showLogin(serviceDown);
         return;
       }
       const data = await response.json();
@@ -154,49 +459,83 @@
 
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const response = await fetch("/api/admin/login", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user: document.getElementById("login-user").value,
-          password: document.getElementById("login-password").value,
-        }),
-      });
-      if (!response.ok) {
+      let response;
+      try {
+        response = await fetch("/api/admin/login", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user: document.getElementById("login-user").value,
+            password: document.getElementById("login-password").value,
+          }),
+        });
+      } catch (error) {
+        showLogin(serviceDown);
+        return;
+      }
+      if (response.status === 401) {
         document.getElementById("login-note").textContent = "The name or password is wrong.";
+        return;
+      }
+      if (!response.ok) {
+        showLogin("The Misio service is not answering. On the Pi, check that the misio service is running.");
         return;
       }
       const data = await response.json();
       document.getElementById("login-password").value = "";
       firstPassword.hidden = !data.mustChange;
+      loadOverview();
       loadReports();
     });
 
     document.getElementById("password-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const note = document.getElementById("password-note");
-      const response = await fetch("/api/admin/password", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          current: document.getElementById("password-current").value,
-          password: document.getElementById("password-new").value,
-        }),
-      });
+      let response;
+      try {
+        response = await fetch("/api/admin/password", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            current: document.getElementById("password-current").value,
+            password: document.getElementById("password-new").value,
+          }),
+        });
+      } catch (error) {
+        note.textContent = serviceDown;
+        return;
+      }
       if (response.status === 401) {
         note.textContent = "The current password is wrong.";
         return;
       }
       if (!response.ok) {
-        note.textContent = "Use at least 3 characters.";
+        let code = "";
+        try {
+          code = (await response.json()).error || "";
+        } catch (error) {
+          code = "";
+        }
+        note.textContent = code === "short"
+          ? "Use at least 3 characters."
+          : "The password could not be saved. The Pi could not write its files.";
         return;
       }
       document.getElementById("password-current").value = "";
       document.getElementById("password-new").value = "";
       firstPassword.hidden = true;
       note.textContent = "The password is saved.";
+    });
+
+    for (const button of document.querySelectorAll(".range button")) {
+      button.addEventListener("click", () => showChart(button.dataset.range));
+    }
+
+    document.getElementById("clear-errors").addEventListener("click", async () => {
+      const response = await fetch("/api/errors", { method: "DELETE", credentials: "same-origin" });
+      if (response.ok) loadOverview();
     });
 
     document.getElementById("logout").addEventListener("click", async () => {
@@ -209,10 +548,11 @@
       .then((data) => {
         if (!data.ok) return;
         firstPassword.hidden = !data.mustChange;
+        loadOverview();
         loadReports();
       })
       .catch(() => {
-        showLogin("Open this page from the Misio server.");
+        showLogin(serviceDown);
       });
   </script>
 </body>

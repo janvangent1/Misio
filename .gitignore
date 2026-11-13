@@ -5,6 +5,10 @@ reports.json
 reports.json.tmp
 admin.json
 admin.json.tmp
+usage.json
+usage.json.tmp
+errors.json
+errors.json.tmp
 .DS_Store
 Thumbs.db
 deploy/deploy_config.json

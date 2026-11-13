@@ -2478,6 +2478,7 @@ async function importVisio(buffer) {
   if (result.misio) openText(result.misio);
   else openForeignVisio(result);
   setStatus(ui(result.pages > 1 ? "opened-visio-page" : "opened-visio"));
+  noteUse("import-visio");
 }
 
 async function exportVisio(options) {
@@ -2520,6 +2521,7 @@ async function exportVisio(options) {
   persistDraft();
   updateChrome();
   setStatus(ui("saved-visio"));
+  noteUse("export-visio");
   return bytes;
 }
 
@@ -2531,6 +2533,7 @@ function saveDoc() {
   persistDraft();
   updateChrome();
   setStatus(ui("saved"));
+  noteUse("save");
 }
 
 function exportSvgString() {
@@ -2558,6 +2561,7 @@ function exportSvg() {
   if (state.editor) closeEditor(true);
   download("misio.svg", exportSvgString(), "image/svg+xml");
   setStatus(ui("exported-svg"));
+  noteUse("export-svg");
 }
 
 function editTargetAt(world) {
@@ -3349,6 +3353,7 @@ function exportPdf() {
   </style></head><body><h1>${title}</h1>${svg}<` + `script>window.addEventListener("load", function () { window.print(); });<` + `/script></body></html>`);
   doc.close();
   setStatus(ui("pdf-ready"));
+  noteUse("export-pdf");
   window.setTimeout(() => {
     try {
       if (window.Misio && window.Misio.skipPrint) return;
@@ -3560,7 +3565,16 @@ async function sendReport(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!response.ok) throw new Error(String(response.status));
+    if (!response.ok) {
+      let code = "";
+      try {
+        code = (await response.json()).error || "";
+      } catch (error) {
+        code = "";
+      }
+      note.textContent = ui(code === "store" ? "report-store" : "report-failed");
+      return;
+    }
     document.getElementById("report-text").value = "";
     document.getElementById("report-name").value = "";
     document.getElementById("report-dialog").close();
@@ -3800,6 +3814,78 @@ langSelect.addEventListener("change", () => applyLanguage(langSelect.value));
 state.savedSnapshot = serialize();
 restoreDraft();
 applyLanguage(state.lang);
+askVisitorCookie();
+
+function storedCookieChoice() {
+  try {
+    const value = localStorage.getItem("misio-cookies");
+    return value === "yes" || value === "no" ? value : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function rememberCookieChoice(value) {
+  try {
+    localStorage.setItem("misio-cookies", value);
+  } catch (error) {
+    // The notice can still be answered for this visit.
+  }
+}
+
+function askVisitorCookie() {
+  const notice = document.getElementById("cookie-notice");
+  const choice = storedCookieChoice();
+  if (!choice) {
+    notice.hidden = false;
+    return;
+  }
+  notice.hidden = true;
+  noteUse("open", choice === "yes");
+}
+
+document.getElementById("cookie-accept").addEventListener("click", () => {
+  rememberCookieChoice("yes");
+  document.getElementById("cookie-notice").hidden = true;
+  noteUse("open", true);
+});
+
+document.getElementById("cookie-refuse").addEventListener("click", () => {
+  rememberCookieChoice("no");
+  document.getElementById("cookie-notice").hidden = true;
+  noteUse("open", false);
+});
+
+function noteUse(event, track) {
+  const body = { event };
+  if (event === "open") {
+    body.language = state.lang;
+    body.visitor = track === true;
+  }
+  fetch("/api/use", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+function reportClientError(message, detail) {
+  fetch("/api/client-error", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: String(message || "").slice(0, 500), detail: String(detail || "").slice(0, 800) }),
+  }).catch(() => {});
+}
+
+window.addEventListener("error", (event) => {
+  reportClientError(event.message || "Script error", [event.filename, event.lineno].filter(Boolean).join(":"));
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  const message = reason && reason.message ? reason.message : String(reason || "Unhandled error");
+  reportClientError(message, "");
+});
 
 window.Misio = {
   getDoc() {

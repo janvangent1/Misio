@@ -13,7 +13,6 @@ import time
 import traceback
 import webbrowser
 from datetime import datetime
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -21,7 +20,7 @@ from urllib.request import urlopen
 import tkinter as tk
 from tkinter import ttk
 
-from serve import Handler
+from serve import Handler, MisioHTTPServer
 
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
@@ -39,7 +38,7 @@ OK = "#1d6b3a"
 BAD = "#8d2b2b"
 
 
-class MisioServer(ThreadingHTTPServer):
+class MisioServer(MisioHTTPServer):
     """Local file server that can drop every open socket on shutdown."""
 
     daemon_threads = True
