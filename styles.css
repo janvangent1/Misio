@@ -72,12 +72,19 @@ button[aria-pressed="true"] {
 
 .topbar {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  padding: 10px 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 16px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+
+.bar-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
 }
 
 .brand {
@@ -113,14 +120,34 @@ button[aria-pressed="true"] {
 .file-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.tools {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 .tools button,
 .file-actions button,
 #lang,
 #connector-ends {
+  height: 30px;
+  padding: 0 10px;
+  line-height: 1;
   white-space: nowrap;
+}
+
+#zoom-out,
+#zoom-in {
+  width: 30px;
+  padding: 0;
+}
+
+.file-actions {
+  flex: none;
+  justify-content: flex-start;
 }
 
 .lane-color {
@@ -177,12 +204,16 @@ button[aria-pressed="true"] {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 0 8px;
   cursor: pointer;
 }
 
 #zoom-label {
-  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  min-width: 48px;
   text-align: center;
   font-size: 12px;
   color: var(--muted);
@@ -190,8 +221,8 @@ button[aria-pressed="true"] {
 }
 
 .status {
-  flex: 1 1 80px;
-  min-width: 0;
+  flex: 1 1 48px;
+  min-width: 24px;
   margin: 0;
   color: var(--muted);
   font-size: 12px;
@@ -199,8 +230,6 @@ button[aria-pressed="true"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.file-actions { margin-left: auto; }
 
 .confirm {
   display: flex;

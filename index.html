@@ -10,15 +10,36 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <svg class="mark" viewBox="0 0 22 16" aria-hidden="true">
-        <rect x="0.75" y="3.25" width="10.5" height="7.5" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/>
-        <path d="M11.5 7h6.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-        <path d="M15.4 4.4 18.9 7 15.4 9.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <div>
-        <h1>Misio</h1>
-        <p data-ui="tagline">A small flowchart editor</p>
+    <div class="bar-main">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 22 16" aria-hidden="true">
+          <rect x="0.75" y="3.25" width="10.5" height="7.5" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M11.5 7h6.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M15.4 4.4 18.9 7 15.4 9.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div>
+          <h1>Misio</h1>
+          <p data-ui="tagline">A small flowchart editor</p>
+        </div>
+      </div>
+      <p id="status" class="status" role="status"></p>
+      <div class="file-actions" role="toolbar" data-ui-label="file" aria-label="File">
+        <button id="new-doc" type="button" data-ui="new">New</button>
+        <button id="open-doc" type="button" data-ui="open">Open</button>
+        <button id="save-doc" type="button" data-ui="save">Save</button>
+        <button id="import-visio" type="button" data-ui="import-visio" data-ui-title="import-visio-title" title="Import a Visio drawing (.vsdx)">Import Visio</button>
+        <button id="export-visio" type="button" data-ui="export-visio" data-ui-title="export-visio-title" title="Export a Visio drawing (.vsdx)">Export Visio</button>
+        <button id="export-svg" type="button" data-ui="export-svg">Export SVG</button>
+        <button id="export-pdf" type="button" data-ui="export-pdf" data-ui-title="export-pdf-title" title="Open a one-page sheet and print it to PDF">Export PDF</button>
+        <button id="report" type="button" data-ui="report" data-ui-title="report-title" title="Send a bug or a request">Report</button>
+        <span class="sep" aria-hidden="true"></span>
+        <select id="lang" data-ui-label="language" aria-label="Language">
+          <option value="en">English</option>
+          <option value="nl">Nederlands</option>
+          <option value="fr">Français</option>
+        </select>
+        <input id="file-input" type="file" accept="application/json,.json" hidden>
+        <input id="visio-input" type="file" accept=".vsdx,application/vnd.ms-visio.drawing" hidden>
       </div>
     </div>
     <div class="tools" role="toolbar" data-ui-label="tools" aria-label="Tools">
@@ -67,25 +88,6 @@
       <span id="zoom-label">100%</span>
       <button id="zoom-in" type="button" data-ui-title="zoom-in" title="Zoom in">+</button>
       <button id="fit" type="button" data-ui="fit" data-ui-title="fit-title" title="Fit the diagram in the window">Fit</button>
-    </div>
-    <p id="status" class="status" role="status"></p>
-    <div class="file-actions" role="toolbar" data-ui-label="file" aria-label="File">
-      <button id="new-doc" type="button" data-ui="new">New</button>
-      <button id="open-doc" type="button" data-ui="open">Open</button>
-      <button id="save-doc" type="button" data-ui="save">Save</button>
-      <button id="import-visio" type="button" data-ui="import-visio" data-ui-title="import-visio-title" title="Import a Visio drawing (.vsdx)">Import Visio</button>
-      <button id="export-visio" type="button" data-ui="export-visio" data-ui-title="export-visio-title" title="Export a Visio drawing (.vsdx)">Export Visio</button>
-      <button id="export-svg" type="button" data-ui="export-svg">Export SVG</button>
-      <button id="export-pdf" type="button" data-ui="export-pdf" data-ui-title="export-pdf-title" title="Open a one-page sheet and print it to PDF">Export PDF</button>
-      <button id="report" type="button" data-ui="report" data-ui-title="report-title" title="Send a bug or a request">Report</button>
-      <span class="sep" aria-hidden="true"></span>
-      <select id="lang" data-ui-label="language" aria-label="Language">
-        <option value="en">English</option>
-        <option value="nl">Nederlands</option>
-        <option value="fr">Français</option>
-      </select>
-      <input id="file-input" type="file" accept="application/json,.json" hidden>
-      <input id="visio-input" type="file" accept=".vsdx,application/vnd.ms-visio.drawing" hidden>
     </div>
   </header>
   <dialog id="report-dialog" class="report-dialog">

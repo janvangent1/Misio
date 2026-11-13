@@ -1,0 +1,2 @@
+# Misio Pi deployer GUI
+paramiko>=3.0.0
