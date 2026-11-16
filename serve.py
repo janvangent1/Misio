@@ -13,6 +13,8 @@ import hashlib
 import hmac
 import json
 import logging
+import math
+import re
 import secrets
 import sys
 import threading
@@ -26,6 +28,11 @@ REPORTS_PATH = ROOT / "reports.json"
 ADMIN_PATH = ROOT / "admin.json"
 USAGE_PATH = ROOT / "usage.json"
 ERRORS_PATH = ROOT / "errors.json"
+SYMBOLS_DIR = ROOT / "custom symbols"
+SYMBOL_NAME_LIMIT = 80
+SYMBOL_STROKE_LIMIT = 40
+SYMBOL_PORT_LIMIT = 16
+SYMBOL_FILE_LIMIT = 200
 ADMIN_USER = "admin"
 FIRST_PASSWORD = "100"
 SESSION_COOKIE = "misio_admin"
@@ -98,6 +105,141 @@ def _save_password(password: str) -> None:
         _write_text(ADMIN_PATH, json.dumps(record))
 
 
+def _symbol_number(value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or number > 40:
+        return None
+    return round(number, 2)
+
+
+def _clean_stroke(item) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    kind = item.get("kind")
+    if kind == "line":
+        coords = [_symbol_number(item.get(key)) for key in ("x1", "y1", "x2", "y2")]
+        if any(value is None for value in coords):
+            return None
+        x1, y1, x2, y2 = coords
+        if math.hypot(x2 - x1, y2 - y1) < 0.5:
+            return None
+        return {"kind": "line", "x1": x1, "y1": y1, "x2": x2, "y2": y2}
+    if kind in ("rect", "ellipse"):
+        coords = [_symbol_number(item.get(key)) for key in ("x", "y", "w", "h")]
+        if any(value is None for value in coords):
+            return None
+        x, y, width, height = coords
+        if width < 1 or height < 1 or x + width > 40.01 or y + height > 40.01:
+            return None
+        return {"kind": kind, "x": x, "y": y, "w": width, "h": height}
+    if kind == "text":
+        x = _symbol_number(item.get("x"))
+        y = _symbol_number(item.get("y"))
+        text = " ".join(str(item.get("text") or "").split())
+        size = _symbol_number(item.get("size"))
+        if x is None or y is None or not text or len(text) > 40:
+            return None
+        if size is None:
+            size = 7.0
+        return {"kind": "text", "x": x, "y": y, "text": text, "size": min(16.0, max(4.0, size))}
+    return None
+
+
+def _clean_port(item, index: int) -> dict | None:
+    if not isinstance(item, dict):
+        return None
+    x = _symbol_number(item.get("x"))
+    y = _symbol_number(item.get("y"))
+    direction = item.get("dir")
+    if x is None or y is None or direction not in ("top", "right", "bottom", "left"):
+        return None
+    return {"id": f"n{index}", "x": x, "y": y, "dir": direction}
+
+
+def _clean_symbol(payload: dict) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    name = " ".join(str(payload.get("name") or "").split())
+    strokes = payload.get("strokes")
+    ports = payload.get("ports")
+    if not name or len(name) > SYMBOL_NAME_LIMIT:
+        return None
+    if not isinstance(strokes, list) or not strokes or len(strokes) > SYMBOL_STROKE_LIMIT:
+        return None
+    if not isinstance(ports, list) or len(ports) > SYMBOL_PORT_LIMIT:
+        return None
+    cleaned_strokes = []
+    for item in strokes:
+        stroke = _clean_stroke(item)
+        if stroke is None:
+            return None
+        cleaned_strokes.append(stroke)
+    cleaned_ports = []
+    for index, item in enumerate(ports, start=1):
+        port = _clean_port(item, index)
+        if port is None:
+            return None
+        cleaned_ports.append(port)
+    return {"name": name, "strokes": cleaned_strokes, "ports": cleaned_ports}
+
+
+def _symbol_path(symbol_id: str) -> Path | None:
+    if not re.fullmatch(r"[0-9a-f]{16}", symbol_id or ""):
+        return None
+    return SYMBOLS_DIR / f"{symbol_id}.json"
+
+
+def _read_symbol(path: Path) -> dict | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    symbol_id = path.stem
+    cleaned = _clean_symbol(payload)
+    if cleaned is None or _symbol_path(symbol_id) is None:
+        return None
+    cleaned["id"] = symbol_id
+    return cleaned
+
+
+def _list_symbols() -> list:
+    if not SYMBOLS_DIR.is_dir():
+        return []
+    symbols = []
+    for path in SYMBOLS_DIR.glob("*.json"):
+        symbol = _read_symbol(path)
+        if symbol is not None:
+            symbols.append(symbol)
+    symbols.sort(key=lambda item: (item["name"].lower(), item["id"]))
+    return symbols
+
+
+def _save_symbol(payload: dict) -> tuple[dict | None, str]:
+    cleaned = _clean_symbol(payload)
+    if cleaned is None:
+        return None, "bad-symbol"
+    symbol_id = secrets.token_hex(8)
+    cleaned["id"] = symbol_id
+    with _store_lock:
+        SYMBOLS_DIR.mkdir(parents=True, exist_ok=True)
+        if len(list(SYMBOLS_DIR.glob("*.json"))) >= SYMBOL_FILE_LIMIT:
+            return None, "full"
+        _write_text(SYMBOLS_DIR / f"{symbol_id}.json", json.dumps(cleaned, ensure_ascii=False, indent=2))
+    return cleaned, ""
+
+
+def _delete_symbol(symbol_id: str) -> bool:
+    path = _symbol_path(symbol_id)
+    if path is None or not path.is_file():
+        return False
+    path.unlink()
+    return True
+
+
 def _read_reports() -> list:
     if not REPORTS_PATH.is_file():
         return []
@@ -145,6 +287,7 @@ def _read_json_file(path: Path, fallback):
 def _blank_usage() -> dict:
     return {
         "opens": 0,
+        "withoutCookie": 0,
         "visitorTotal": 0,
         "lastOpen": "",
         "days": {},
@@ -275,6 +418,8 @@ def _note_use(event: str, language: str, visitor_id: str = "", browser: str = ""
                     visitor_id = secrets.token_hex(8)
                 issued = visitor_id
             usage["opens"] = int(usage.get("opens") or 0) + 1
+            if not track:
+                usage["withoutCookie"] = int(usage.get("withoutCookie") or 0) + 1
             usage["lastOpen"] = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             day = now.strftime("%Y-%m-%d")
             days[day] = int(days.get(day) or 0) + 1
@@ -393,6 +538,7 @@ def _usage_view() -> dict:
     month_from = day_start - timedelta(days=29)
     return {
         "opens": int(usage.get("opens") or 0),
+        "withoutCookie": int(usage.get("withoutCookie") or 0),
         "visitors": int(usage.get("visitorTotal") or len(first_seen)),
         "lastOpen": usage.get("lastOpen") or "",
         "languages": _as_dict(usage.get("languages")),
@@ -491,6 +637,9 @@ class Handler(SimpleHTTPRequestHandler):
                 "mustChange": bool(_admin_record().get("mustChange")) if logged_in else False,
             })
             return
+        if path == "/api/symbols":
+            self._send_json({"symbols": _list_symbols()})
+            return
         if path == "/api/reports":
             if not self._logged_in():
                 self._send_json({"error": "login"}, 401)
@@ -521,6 +670,13 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"error": "bad-json"}, 400)
             return
         try:
+            if path == "/api/symbols":
+                symbol, error = _save_symbol(payload)
+                if error:
+                    self._send_json({"error": error}, 400)
+                    return
+                self._send_json({"ok": True, "symbol": symbol})
+                return
             if path == "/api/reports":
                 self._post_report(payload)
                 return
@@ -548,6 +704,21 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         path = self.path.split("?", 1)[0]
+        if path.startswith("/api/symbols/"):
+            if not self._logged_in():
+                self._send_json({"error": "login"}, 401)
+                return
+            try:
+                removed = _delete_symbol(path[len("/api/symbols/"):])
+            except OSError as exc:
+                _note_store_failure(exc)
+                self._send_json({"error": "store"}, 500)
+                return
+            if not removed:
+                self._send_json({"error": "missing"}, 404)
+                return
+            self._send_json({"ok": True})
+            return
         prefix = "/api/reports/"
         if path == "/api/errors":
             if not self._logged_in():
@@ -742,7 +913,7 @@ def main() -> None:
         raise SystemExit(f"Could not listen on {args.host}:{args.port}: {exc}") from exc
     shown = "this computer" if args.host == "0.0.0.0" else args.host
     print(f"Misio at http://{shown}:{args.port}/", flush=True)
-    print("Reports are saved in this folder. Admin page: /admin.html", flush=True)
+    print("Reports and custom symbols are saved in this folder. Admin page: /admin.html", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

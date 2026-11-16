@@ -9,6 +9,7 @@ usage.json
 usage.json.tmp
 errors.json
 errors.json.tmp
+custom symbols/
 .DS_Store
 Thumbs.db
 deploy/deploy_config.json

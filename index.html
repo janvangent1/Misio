@@ -120,6 +120,36 @@
     <button id="confirm-yes" type="button" data-ui="clear">Clear</button>
     <button id="confirm-no" type="button" data-ui="cancel">Cancel</button>
   </div>
+  <dialog id="symbol-dialog" class="symbol-dialog">
+    <form id="symbol-form" method="dialog">
+      <h2 data-ui="symbol-new">New symbol</h2>
+      <label>
+        <span data-ui="symbol-name">Name</span>
+        <input id="symbol-name" type="text" maxlength="80" required autocomplete="off">
+      </label>
+      <div class="symbol-tools" role="toolbar" data-ui-label="symbol-tools" aria-label="Symbol tools">
+        <button id="symbol-line" type="button" aria-pressed="true" data-ui="symbol-line">Line</button>
+        <button id="symbol-rect" type="button" aria-pressed="false" data-ui="symbol-rect">Rectangle</button>
+        <button id="symbol-ellipse" type="button" aria-pressed="false" data-ui="symbol-ellipse">Ellipse</button>
+        <button id="symbol-text" type="button" aria-pressed="false" data-ui="symbol-label">Text</button>
+        <button id="symbol-point" type="button" aria-pressed="false" data-ui="symbol-point">Point</button>
+      </div>
+      <div class="symbol-view">
+        <button id="symbol-zoom-out" type="button" data-ui="zoom-out" data-ui-title="symbol-zoom-out-title" title="Show more of the symbol">Zoom out</button>
+        <span id="symbol-zoom">100%</span>
+        <button id="symbol-zoom-in" type="button" data-ui="zoom-in" data-ui-title="symbol-zoom-in-title" title="Draw a detail larger">Zoom in</button>
+        <button id="symbol-snap" type="button" aria-pressed="true" data-ui="symbol-snap" data-ui-title="symbol-snap-title" title="Snap a line to another line, a rectangle, or an ellipse">Snap</button>
+      </div>
+      <svg id="symbol-pad" viewBox="0 0 40 40" role="img" data-ui-label="symbol-pad" aria-label="Symbol drawing"></svg>
+      <p class="hint" data-ui="symbol-hint">Draw the ink, then place a point where a wire should meet it. Drag a point to move it. Click a point to change the side the wire leaves. Shift-click removes a point or text. Text: click and type, then drag the words to move them. The wheel zooms in so a detail can be drawn larger, and the right mouse button moves the view. Snap pulls a line onto another line, a rectangle, or an ellipse.</p>
+      <p id="symbol-note" class="report-note" role="status"></p>
+      <div class="report-actions">
+        <button id="symbol-cancel" type="button" data-ui="cancel">Cancel</button>
+        <button type="submit" data-ui="symbol-save">Save symbol</button>
+      </div>
+    </form>
+    <input id="symbol-text-input" class="symbol-text-input" type="text" maxlength="40" hidden autocomplete="off" spellcheck="false" data-ui-label="symbol-label" aria-label="Text">
+  </dialog>
   <div id="cookie-notice" class="cookie-notice" hidden role="dialog" aria-labelledby="cookie-text">
     <p id="cookie-text" data-ui="cookie-text">Misio uses one cookie to count return visits. The drawing stays in this browser either way.</p>
     <div class="cookie-actions">
@@ -132,6 +162,7 @@
       <h2 data-ui="shapes">Shapes</h2>
       <input id="shape-search" type="search" data-ui-placeholder="search-placeholder" data-ui-label="search-label" placeholder="Search shapes" aria-label="Search shapes" autocomplete="off" spellcheck="false">
       <div id="masters"></div>
+      <button id="symbol-new" type="button" class="symbol-new" data-ui="symbol-new">New symbol</button>
       <p class="hint" data-ui="hint">Drag a shape onto the page. Ctrl-click or Shift-click selects several, and dragging one moves them together. Ctrl+C, Ctrl+V, and Ctrl+D copy them. Drop a symbol on a bus to add a tap. Double-click to edit text.</p>
       <a class="admin-link" href="admin.html" data-ui="admin" data-ui-title="admin-title" title="Use, errors, and reports">Admin</a>
     </aside>

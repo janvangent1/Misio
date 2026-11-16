@@ -40,6 +40,8 @@ const MASTERS = FLOW_MASTERS.concat(
   window.MisioWater.masters,
 );
 const TYPES = new Set(MASTERS.map((master) => master.type));
+let customLibrary = [];
+let symbolAdmin = false;
 TYPES.add("legend");
 TYPES.add("lane");
 const LEGEND_PAD = 14;
@@ -126,8 +128,15 @@ function storedLanguage() {
 function labelFor(key) {
   const table = (window.MisioLang && window.MisioLang[state.lang]) || {};
   if (table[key]) return table[key];
+  if (String(key).startsWith("custom-")) {
+    const stored = customLibrary.find((item) => `custom-${item.id}` === key);
+    if (stored) return stored.name;
+    const placed = state.doc && state.doc.shapes.find((shape) => shape.type === key && shape.symbol);
+    if (placed && placed.symbol.name) return placed.symbol.name;
+  }
   if (String(key).startsWith("group:")) {
     const id = key.slice(6);
+    if (id === "custom") return ui("custom-symbols");
     if (id === "arei") return "AREI";
     const categories = window.MisioArei.categories.concat(
       window.MisioNetwork.categories,
@@ -184,6 +193,10 @@ function shapeRecord(shape) {
     record.axis = laneAxis(shape);
     const color = laneHex(shape.color);
     if (color) record.color = color;
+  }
+  if (shape.symbol) {
+    const symbol = sanitizeSymbol(shape.symbol);
+    if (symbol) record.symbol = symbol;
   }
   if (shapeAngle(shape)) record.rotation = shapeAngle(shape);
   return record;
@@ -317,6 +330,8 @@ function symbolPorts(shape) {
 }
 
 function shapePorts(shape) {
+  const symbol = customSymbol(shape);
+  if (symbol) return symbol.ports.map((item) => item.id);
   const found = symbolPorts(shape);
   return found ? found.ports.map((item) => item.id) : PORTS;
 }
@@ -431,6 +446,11 @@ function outlinePort(shape, port) {
 }
 
 function localPortPoint(shape, port) {
+  const symbol = customSymbol(shape);
+  if (symbol) {
+    const item = symbol.ports.find((entry) => entry.id === port);
+    if (item) return customIconPoint(shape, item.x, item.y);
+  }
   const onOutline = outlinePort(shape, port);
   if (onOutline) return onOutline;
   const found = symbolPorts(shape);
@@ -458,6 +478,12 @@ function portPoint(shape, port) {
 }
 
 function portVectorOf(shape, port) {
+  const symbol = shape && customSymbol(shape);
+  if (symbol) {
+    const item = symbol.ports.find((entry) => entry.id === port);
+    const base = item && PORT_VECTOR[item.dir] ? PORT_VECTOR[item.dir] : PORT_VECTOR.bottom;
+    return turnVector(base, shapeAngle(shape));
+  }
   const found = shape && symbolPorts(shape);
   const item = found && found.ports.find((entry) => entry.id === port);
   const base = item && PORT_VECTOR[item.dir] ? PORT_VECTOR[item.dir] : (PORT_VECTOR[port] || PORT_VECTOR.bottom);
@@ -649,6 +675,10 @@ function drawAreiLabel(parent, shape) {
 
 function drawLabel(parent, shape) {
   if (shape.type === "legend") return;
+  if (customSymbol(shape)) {
+    drawCustomLabel(parent, shape);
+    return;
+  }
   if (symbolPack(shape.type)) {
     drawAreiLabel(parent, shape);
     return;
@@ -686,9 +716,23 @@ function shapePaint(shape) {
   };
 }
 
+function masterByType(type) {
+  return MASTERS.find((item) => item.type === type) || customMasters().find((item) => item.type === type) || null;
+}
+
 function usedLegendMasters(shapes) {
-  const used = new Set(shapes.filter((shape) => shape.type !== "legend").map((shape) => shape.type));
-  return MASTERS.filter((master) => used.has(master.type));
+  const seen = new Set();
+  const masters = [];
+  for (const shape of shapes) {
+    if (shape.type === "legend" || seen.has(shape.type)) continue;
+    const master = masterByType(shape.type)
+      || (shape.symbol ? { type: shape.type, name: shape.symbol.name, symbol: shape.symbol } : null);
+    if (master) {
+      seen.add(shape.type);
+      masters.push(master);
+    }
+  }
+  return masters;
 }
 
 function legendLayout(masters) {
@@ -709,8 +753,17 @@ function legendLayout(masters) {
 }
 
 function legendMasters(shape) {
-  const wanted = new Set(String(shape.text || "").split("\n").map((type) => type.trim()).filter(Boolean));
-  return MASTERS.filter((master) => wanted.has(master.type));
+  const wanted = String(shape.text || "").split("\n").map((type) => type.trim()).filter(Boolean);
+  const masters = [];
+  for (const type of wanted) {
+    const master = masterByType(type);
+    if (master) masters.push(master);
+    else {
+      const placed = state.doc.shapes.find((item) => item.type === type && item.symbol);
+      if (placed) masters.push({ type, name: placed.symbol.name, symbol: placed.symbol });
+    }
+  }
+  return masters;
 }
 
 function drawLegend(parent, shape, paint) {
@@ -746,7 +799,7 @@ function drawLegend(parent, shape, paint) {
     const row = index % layout.rows;
     const ix = x + LEGEND_PAD + column * (layout.columnWidth + 18);
     const iy = y + LEGEND_PAD + LEGEND_TITLE + row * LEGEND_ROW + (LEGEND_ROW - LEGEND_ICON) / 2;
-    drawOutline(parent, { type: master.type, x: ix, y: iy, w: LEGEND_ICON, h: LEGEND_ICON, text: "" }, iconPaint);
+    drawOutline(parent, { type: master.type, symbol: master.symbol, x: ix, y: iy, w: LEGEND_ICON, h: LEGEND_ICON, text: "" }, iconPaint);
     const name = el("text", {
       x: ix + LEGEND_ICON + LEGEND_GAP,
       y: iy + LEGEND_ICON / 2,
@@ -888,6 +941,159 @@ function drawLane(parent, shape, paint) {
   });
 }
 
+function isCustomType(type) {
+  return /^custom-[0-9a-f]{16}$/.test(String(type || ""));
+}
+
+function symbolNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 40) return null;
+  return Math.round(number * 100) / 100;
+}
+
+function sanitizeStroke(item) {
+  if (!item || typeof item !== "object") return null;
+  if (item.kind === "line") {
+    const coords = ["x1", "y1", "x2", "y2"].map((key) => symbolNumber(item[key]));
+    if (coords.some((value) => value == null)) return null;
+    const [x1, y1, x2, y2] = coords;
+    if (Math.hypot(x2 - x1, y2 - y1) < 0.5) return null;
+    return { kind: "line", x1, y1, x2, y2 };
+  }
+  if (item.kind === "text") {
+    const x = symbolNumber(item.x);
+    const y = symbolNumber(item.y);
+    const text = String(item.text || "").trim().replace(/\s+/g, " ").slice(0, 40);
+    const size = symbolNumber(item.size);
+    if (x == null || y == null || !text) return null;
+    return { kind: "text", x, y, text, size: Math.min(16, Math.max(4, size == null ? 7 : size)) };
+  }
+  if (item.kind !== "rect" && item.kind !== "ellipse") return null;
+  const coords = ["x", "y", "w", "h"].map((key) => symbolNumber(item[key]));
+  if (coords.some((value) => value == null)) return null;
+  const [x, y, w, h] = coords;
+  if (w < 1 || h < 1 || x + w > 40.01 || y + h > 40.01) return null;
+  return { kind: item.kind, x, y, w, h };
+}
+
+function sanitizeSymbol(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const name = String(raw.name || "").trim().replace(/\s+/g, " ").slice(0, 80);
+  if (!name || !Array.isArray(raw.strokes) || !raw.strokes.length || raw.strokes.length > 40) return null;
+  if (!Array.isArray(raw.ports) || raw.ports.length > 16) return null;
+  const strokes = raw.strokes.map(sanitizeStroke);
+  if (strokes.some((stroke) => !stroke)) return null;
+  const dirs = ["top", "right", "bottom", "left"];
+  const ports = [];
+  for (let index = 0; index < raw.ports.length; index += 1) {
+    const item = raw.ports[index];
+    const x = item && symbolNumber(item.x);
+    const y = item && symbolNumber(item.y);
+    if (x == null || y == null || !dirs.includes(item.dir)) return null;
+    ports.push({ id: `n${index + 1}`, x, y, dir: item.dir });
+  }
+  return { name, strokes, ports };
+}
+
+function customSymbol(shape) {
+  return shape && shape.symbol && Array.isArray(shape.symbol.strokes) ? shape.symbol : null;
+}
+
+function customFrame(shape) {
+  const caption = String(shape.text || "").trim() ? Math.min(22, shape.h * 0.28) : 0;
+  const boxH = Math.max(8, shape.h - caption);
+  const size = Math.min(shape.w, boxH);
+  return {
+    x: shape.x + (shape.w - size) / 2,
+    y: shape.y + (boxH - size) / 2,
+    size,
+    captionTop: shape.y + boxH,
+  };
+}
+
+function customIconPoint(shape, nx, ny) {
+  const frame = customFrame(shape);
+  return {
+    x: frame.x + (Number(nx) / 40) * frame.size,
+    y: frame.y + (Number(ny) / 40) * frame.size,
+  };
+}
+
+function drawCustomSymbol(parent, shape, paint) {
+  const symbol = customSymbol(shape);
+  if (!symbol) return;
+  const ink = {
+    fill: "none",
+    stroke: paint.stroke,
+    "stroke-width": paint.sw,
+    "stroke-linejoin": "round",
+    "stroke-linecap": "round",
+  };
+  for (const stroke of symbol.strokes) {
+    if (stroke.kind === "line") {
+      const start = customIconPoint(shape, stroke.x1, stroke.y1);
+      const end = customIconPoint(shape, stroke.x2, stroke.y2);
+      el("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, ...ink }, parent);
+      continue;
+    }
+    if (stroke.kind === "text") {
+      const at = customIconPoint(shape, stroke.x, stroke.y);
+      const frame = customFrame(shape);
+      const node = el("text", {
+        x: at.x,
+        y: at.y,
+        "text-anchor": "middle",
+        "dominant-baseline": "central",
+        "font-family": "Segoe UI, Helvetica Neue, sans-serif",
+        "font-size": Math.max(1, ((Number(stroke.size) || 7) / 40) * frame.size),
+        fill: paint.stroke,
+      }, parent);
+      node.textContent = stroke.text;
+      continue;
+    }
+    const origin = customIconPoint(shape, stroke.x, stroke.y);
+    const far = customIconPoint(shape, stroke.x + stroke.w, stroke.y + stroke.h);
+    const width = far.x - origin.x;
+    const height = far.y - origin.y;
+    if (stroke.kind === "ellipse") {
+      el("ellipse", {
+        cx: origin.x + width / 2,
+        cy: origin.y + height / 2,
+        rx: Math.abs(width) / 2,
+        ry: Math.abs(height) / 2,
+        ...ink,
+      }, parent);
+    } else {
+      el("rect", { x: origin.x, y: origin.y, width, height, ...ink }, parent);
+    }
+  }
+}
+
+function drawCustomLabel(parent, shape) {
+  const text = String(shape.text || "").trim();
+  if (!text) return;
+  const frame = customFrame(shape);
+  const maxWidth = Math.max(24, shape.w - 8);
+  const size = 12;
+  const lines = wrapLines(text, maxWidth, size).slice(0, 2);
+  const lineHeight = size * 1.25;
+  const cx = shape.x + shape.w / 2;
+  const anchorY = frame.captionTop + size;
+  const node = el("text", {
+    x: cx,
+    y: anchorY,
+    "text-anchor": "middle",
+    "font-family": "Segoe UI, Helvetica Neue, sans-serif",
+    "font-size": size,
+    fill: "#1c1915",
+  }, parent);
+  lines.forEach((line, index) => {
+    const tspan = el("tspan", { x: cx, dy: index === 0 ? 0 : lineHeight }, node);
+    tspan.textContent = line;
+  });
+  keepTextUpright(node, cx, anchorY + ((lines.length - 1) * lineHeight) / 2, shape.turn);
+}
+
 function drawOutline(parent, shape, paint) {
   const { x, y, w, h } = shape;
   const right = x + w;
@@ -919,6 +1125,10 @@ function drawOutline(parent, shape, paint) {
       "stroke-width": Math.max(paint.sw, 2.5),
       "stroke-linecap": "round",
     }, parent);
+    return;
+  }
+  if (customSymbol(shape)) {
+    drawCustomSymbol(parent, shape, paint);
     return;
   }
   const pack = symbolPack(shape.type);
@@ -1081,7 +1291,8 @@ function drawShapeBody(parent, shape) {
 function wirePair(connector) {
   const from = getShape(connector.fromId);
   const to = getShape(connector.toId);
-  return Boolean(from && to && symbolPack(from.type) && symbolPack(to.type));
+  const marked = (shape) => Boolean(shape && (symbolPack(shape.type) || customSymbol(shape)));
+  return Boolean(marked(from) && marked(to));
 }
 
 function knownEnds(value) {
@@ -1525,6 +1736,7 @@ function hitHandle(point) {
 
 function nearestPort(shape, point) {
   const ports = shapePorts(shape);
+  if (!ports.length) return null;
   let best = ports[0];
   let bestDistance = Infinity;
   for (const port of ports) {
@@ -1561,7 +1773,9 @@ function portTarget(point, excludeId) {
   if (direct) return direct;
   const shape = hitShape(point);
   if (!shape || shape.id === excludeId || shape.type === "lane") return null;
-  return { id: shape.id, port: nearestPort(shape, point) };
+  const port = nearestPort(shape, point);
+  if (!port) return null;
+  return { id: shape.id, port };
 }
 
 function hitShape(point) {
@@ -1618,6 +1832,10 @@ function addShape(master, world) {
     h: master.h,
     text: master.text,
   };
+  if (master.symbol) {
+    const symbol = sanitizeSymbol(master.symbol);
+    if (symbol) shape.symbol = symbol;
+  }
   state.doc.shapes.push(shape);
   wireDroppedShape(shape, world);
   selectShapes([shape.id]);
@@ -2252,9 +2470,13 @@ function clearDoc() {
 }
 
 function sanitizeShape(raw) {
-  if (!raw || !TYPES.has(raw.type)) return null;
+  if (!raw || typeof raw.type !== "string") return null;
+  const custom = isCustomType(raw.type);
+  if (!custom && !TYPES.has(raw.type)) return null;
+  const symbol = custom ? sanitizeSymbol(raw.symbol) : null;
+  if (custom && !symbol) return null;
   const master = MASTERS.find((item) => item.type === raw.type);
-  if (!master && raw.type !== "legend" && raw.type !== "lane") return null;
+  if (!custom && !master && raw.type !== "legend" && raw.type !== "lane") return null;
   const shape = {
     id: raw.id == null || raw.id === "" ? uid() : String(raw.id),
     type: raw.type,
@@ -2269,6 +2491,7 @@ function sanitizeShape(raw) {
   shape.h = Math.max(MIN_SIZE, shape.h);
   if (shape.type === "text" && raw.bare) shape.bare = true;
   if (shapeAngle(raw)) shape.rotation = shapeAngle(raw);
+  if (symbol) shape.symbol = symbol;
   if (shape.type === "lane") {
     shape.axis = raw.axis === "column" ? "column" : "row";
     const color = laneHex(raw.color);
@@ -2492,7 +2715,7 @@ async function exportVisio(options) {
   const doc = JSON.parse(serialize());
   const images = {};
   for (const shape of doc.shapes) {
-    if (shape.type === "legend" || symbolPack(shape.type)) {
+    if (shape.type === "legend" || symbolPack(shape.type) || shape.symbol) {
       const png = await rasterShape(shape);
       if (png) images[shape.id] = png;
     }
@@ -2651,8 +2874,9 @@ function onPointerDown(event) {
   }
   if (state.tool === "connect") {
     const shape = hitShape(world);
-    const port = hitPort(world) || (shape && shape.type !== "lane" ? { id: shape.id, port: nearestPort(shape, world) } : null);
-    if (port) {
+    const nearest = shape && shape.type !== "lane" ? nearestPort(shape, world) : null;
+    const port = hitPort(world) || (nearest ? { id: shape.id, port: nearest } : null);
+    if (port && port.port) {
       state.gesture = { type: "connect", fromId: port.id, fromPort: port.port, pointer: world, before: serialize() };
       state.selection = { kind: "shape", id: port.id };
       wrap.setPointerCapture(event.pointerId);
@@ -2913,6 +3137,12 @@ function wireDroppedShape(shape, point) {
     shape.y = above ? maybeSnap(center.y - gap - shape.h) : maybeSnap(center.y + gap);
     fromPort = above ? "bottom" : "top";
   }
+  const symbol = customSymbol(shape);
+  if (symbol) {
+    const facing = symbol.ports.find((item) => item.dir === fromPort) || symbol.ports[0];
+    if (!facing) return;
+    fromPort = facing.id;
+  }
   const tap = tapOnBus(bus, shapeCenter(shape), shape.id);
   state.doc.connectors.push({
     id: uid(),
@@ -3074,7 +3304,7 @@ function masterButton(master) {
   icon.setAttribute("viewBox", "0 0 76 40");
   icon.setAttribute("aria-hidden", "true");
   plainDraw = true;
-  drawOutline(icon, { type: master.type, x: 8, y: 4, w: 60, h: 32, text: "" }, {
+  drawOutline(icon, { type: master.type, symbol: master.symbol, x: 8, y: 4, w: 60, h: 32, text: "" }, {
     fill: "#fffcf7",
     stroke: "#1c1915",
     sw: 1.5,
@@ -3148,6 +3378,10 @@ function stampCopies(records, dx, dy) {
       if (color) shape.color = color;
     }
     if (shapeAngle(raw)) shape.rotation = shapeAngle(raw);
+    if (raw.symbol) {
+      const symbol = sanitizeSymbol(raw.symbol);
+      if (symbol) shape.symbol = symbol;
+    }
     map.set(String(raw.id), shape.id);
     state.doc.shapes.push(shape);
     ids.push(shape.id);
@@ -3411,6 +3645,14 @@ function buildMasters() {
       if (query) group.open = true;
       mastersEl.appendChild(group);
     }
+  }
+  const customNodes = customMasters()
+    .filter((master) => masterMatches(master, query))
+    .map(customMasterRow);
+  if (customNodes.length) {
+    const custom = symbolGroup(ui("custom-symbols"), customNodes, false, "custom");
+    custom.open = true;
+    mastersEl.appendChild(custom);
   }
   if (!mastersEl.children.length) {
     const empty = document.createElement("p");
@@ -3707,7 +3949,7 @@ wrap.addEventListener("drop", (event) => {
     return;
   }
   const type = event.dataTransfer.getData("application/x-misio-shape");
-  const master = MASTERS.find((item) => item.type === type);
+  const master = masterByType(type);
   if (!master) return;
   event.preventDefault();
   addShape(master, clientToWorld(event.clientX, event.clientY));
@@ -3808,7 +4050,605 @@ function applyLanguage(lang) {
   render();
 }
 
+let symbolTool = "line";
+let symbolStrokes = [];
+let padPorts = [];
+let symbolDrag = null;
+let symbolTextEdit = null;
+let symbolSnap = true;
+let symbolView = { x: 0, y: 0, size: 40 };
+
+function customMasters() {
+  return customLibrary.map((symbol) => ({
+    type: `custom-${symbol.id}`,
+    category: "custom",
+    name: symbol.name,
+    w: 80,
+    h: 80,
+    text: "",
+    symbol: { name: symbol.name, strokes: symbol.strokes, ports: symbol.ports },
+  }));
+}
+
+function customMasterRow(master) {
+  const row = document.createElement("div");
+  row.className = "custom-row";
+  row.appendChild(masterButton(master));
+  if (!symbolAdmin) return row;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "custom-remove";
+  remove.dataset.ui = "symbol-remove";
+  remove.textContent = ui("symbol-remove");
+  remove.addEventListener("click", () => removeCustomSymbol(master));
+  row.appendChild(remove);
+  return row;
+}
+
+function loadCustomSymbols() {
+  const symbols = fetch("/api/symbols")
+    .then((response) => (response.ok ? response.json() : { symbols: [] }))
+    .catch(() => ({ symbols: [] }));
+  const session = fetch("/api/admin/session", { credentials: "same-origin" })
+    .then((response) => (response.ok ? response.json() : { ok: false }))
+    .catch(() => ({ ok: false }));
+  return Promise.all([symbols, session])
+    .then(([data, admin]) => {
+      symbolAdmin = Boolean(admin && admin.ok);
+      const listed = Array.isArray(data.symbols) ? data.symbols : [];
+      customLibrary = listed.flatMap((item) => {
+        const symbol = sanitizeSymbol(item);
+        if (!symbol || !/^[0-9a-f]{16}$/.test(String(item.id || ""))) return [];
+        return [{ id: item.id, ...symbol }];
+      });
+      buildMasters();
+    })
+    .catch(() => {});
+}
+
+function removeCustomSymbol(master) {
+  const id = String(master.type || "").slice("custom-".length);
+  fetch(`/api/symbols/${id}`, { method: "DELETE", credentials: "same-origin" })
+    .then((response) => {
+      if (response.status === 401) {
+        symbolAdmin = false;
+        buildMasters();
+        setStatus(ui("symbol-admin"));
+        return null;
+      }
+      if (!response.ok) throw new Error("missing");
+      setStatus(ui("symbol-removed"));
+      return loadCustomSymbols();
+    })
+    .catch(() => setStatus(ui("symbol-failed")));
+}
+
+function symbolNearestSide(x, y) {
+  const sides = [
+    ["top", y],
+    ["bottom", 40 - y],
+    ["left", x],
+    ["right", 40 - x],
+  ];
+  sides.sort((left, right) => left[1] - right[1]);
+  return sides[0][0];
+}
+
+function symbolStroke(kind, x1, y1, x2, y2) {
+  if (kind === "line") return sanitizeStroke({ kind, x1, y1, x2, y2 });
+  const x = Math.min(x1, x2);
+  const y = Math.min(y1, y2);
+  return sanitizeStroke({ kind, x, y, w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) });
+}
+
+function symbolRoundPoint(point) {
+  return {
+    x: Math.round(Math.min(40, Math.max(0, point.x)) * 100) / 100,
+    y: Math.round(Math.min(40, Math.max(0, point.y)) * 100) / 100,
+  };
+}
+
+function symbolReach() {
+  const pad = document.getElementById("symbol-pad");
+  const rect = pad.getBoundingClientRect();
+  return rect.width ? (10 / rect.width) * symbolView.size : 1;
+}
+
+function nearestOnSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = dx * dx + dy * dy;
+  if (length < 1e-6) return { x: x1, y: y1 };
+  const t = Math.min(1, Math.max(0, ((px - x1) * dx + (py - y1) * dy) / length));
+  return { x: x1 + t * dx, y: y1 + t * dy };
+}
+
+function nearestOnEllipse(px, py, cx, cy, rx, ry) {
+  let best = { x: cx + rx, y: cy };
+  let bestDistance = Infinity;
+  for (let step = 0; step < 48; step += 1) {
+    const angle = (step / 48) * Math.PI * 2;
+    const x = cx + rx * Math.cos(angle);
+    const y = cy + ry * Math.sin(angle);
+    const distance = Math.hypot(px - x, py - y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = { x, y };
+    }
+  }
+  return best;
+}
+
+function snapSymbolPoint(point, origin, ignorePort) {
+  const reach = symbolReach();
+  let best = null;
+  let bestDistance = reach;
+  const consider = (x, y) => {
+    const distance = Math.hypot(x - point.x, y - point.y);
+    if (distance <= bestDistance) {
+      bestDistance = distance;
+      best = { x, y };
+    }
+  };
+  for (const [index, stroke] of symbolStrokes.entries()) {
+    if (stroke.kind === "text") {
+      if (!(symbolDrag && symbolDrag.kind === "text" && symbolDrag.index === index)) consider(stroke.x, stroke.y);
+      continue;
+    }
+    if (stroke.kind === "line") {
+      consider(stroke.x1, stroke.y1);
+      consider(stroke.x2, stroke.y2);
+      const onLine = nearestOnSegment(point.x, point.y, stroke.x1, stroke.y1, stroke.x2, stroke.y2);
+      consider(onLine.x, onLine.y);
+      continue;
+    }
+    const right = stroke.x + stroke.w;
+    const bottom = stroke.y + stroke.h;
+    if (stroke.kind === "ellipse") {
+      const cx = stroke.x + stroke.w / 2;
+      const cy = stroke.y + stroke.h / 2;
+      consider(cx, cy);
+      consider(stroke.x, cy);
+      consider(right, cy);
+      consider(cx, stroke.y);
+      consider(cx, bottom);
+      const onEllipse = nearestOnEllipse(point.x, point.y, cx, cy, stroke.w / 2, stroke.h / 2);
+      consider(onEllipse.x, onEllipse.y);
+      continue;
+    }
+    consider(stroke.x, stroke.y);
+    consider(right, stroke.y);
+    consider(right, bottom);
+    consider(stroke.x, bottom);
+    consider(stroke.x + stroke.w / 2, stroke.y + stroke.h / 2);
+    for (const edge of [
+      [stroke.x, stroke.y, right, stroke.y],
+      [right, stroke.y, right, bottom],
+      [right, bottom, stroke.x, bottom],
+      [stroke.x, bottom, stroke.x, stroke.y],
+    ]) {
+      const onEdge = nearestOnSegment(point.x, point.y, edge[0], edge[1], edge[2], edge[3]);
+      consider(onEdge.x, onEdge.y);
+    }
+  }
+  padPorts.forEach((port, index) => {
+    if (index !== ignorePort) consider(port.x, port.y);
+  });
+  if (!best && origin) {
+    if (Math.abs(point.x - origin.x) <= reach) consider(origin.x, point.y);
+    if (Math.abs(point.y - origin.y) <= reach) consider(point.x, origin.y);
+  }
+  return symbolRoundPoint(best || point);
+}
+
+function symbolRawPoint(event) {
+  const pad = document.getElementById("symbol-pad");
+  const rect = pad.getBoundingClientRect();
+  const x = symbolView.x + (rect.width ? ((event.clientX - rect.left) / rect.width) * symbolView.size : 0);
+  const y = symbolView.y + (rect.height ? ((event.clientY - rect.top) / rect.height) * symbolView.size : 0);
+  return {
+    x: Math.min(40, Math.max(0, x)),
+    y: Math.min(40, Math.max(0, y)),
+  };
+}
+
+function symbolPadPoint(event) {
+  const raw = symbolRawPoint(event);
+  const drawingLine = symbolDrag && symbolDrag.kind === "line";
+  const ignorePort = symbolDrag && symbolDrag.kind === "port" ? symbolDrag.index : -1;
+  if (!symbolSnap || event.shiftKey) return symbolRoundPoint(raw);
+  const origin = drawingLine ? { x: symbolDrag.x, y: symbolDrag.y } : null;
+  return snapSymbolPoint(raw, origin, ignorePort);
+}
+
+function setSymbolView(x, y, size) {
+  const next = Math.min(40, Math.max(4, size));
+  symbolView = {
+    x: Math.min(40 - next, Math.max(0, x)),
+    y: Math.min(40 - next, Math.max(0, y)),
+    size: next,
+  };
+  const pad = document.getElementById("symbol-pad");
+  pad.setAttribute("viewBox", `${symbolView.x} ${symbolView.y} ${symbolView.size} ${symbolView.size}`);
+  const label = document.getElementById("symbol-zoom");
+  if (label) label.textContent = `${Math.round((40 / next) * 100)}%`;
+  renderSymbolPad();
+}
+
+function zoomSymbol(factor, anchor) {
+  const next = Math.min(40, Math.max(4, symbolView.size / factor));
+  const ax = anchor ? anchor.x : symbolView.x + symbolView.size / 2;
+  const ay = anchor ? anchor.y : symbolView.y + symbolView.size / 2;
+  const rx = (ax - symbolView.x) / symbolView.size;
+  const ry = (ay - symbolView.y) / symbolView.size;
+  setSymbolView(ax - rx * next, ay - ry * next, next);
+}
+
+function renderSymbolPad() {
+  const pad = document.getElementById("symbol-pad");
+  const unit = symbolView.size / 40;
+  pad.replaceChildren();
+  el("rect", { x: 0.3, y: 0.3, width: 39.4, height: 39.4, fill: "#fffcf7", stroke: "#e2dcd2", "stroke-width": 0.25 * unit }, pad);
+  const step = symbolView.size <= 8 ? 1 : symbolView.size <= 20 ? 2 : 10;
+  for (let mark = step; mark < 40; mark += step) {
+    const major = mark % 10 === 0;
+    const stroke = major ? "#e2dcd2" : "#f3efe8";
+    const width = (major ? 0.2 : 0.12) * unit;
+    el("line", { x1: mark, y1: 0, x2: mark, y2: 40, stroke, "stroke-width": width }, pad);
+    el("line", { x1: 0, y1: mark, x2: 40, y2: mark, stroke, "stroke-width": width }, pad);
+  }
+  const strokes = symbolDrag && symbolDrag.preview ? symbolStrokes.concat(symbolDrag.preview) : symbolStrokes;
+  drawCustomSymbol(pad, {
+    x: 0,
+    y: 0,
+    w: 40,
+    h: 40,
+    text: "",
+    symbol: { name: "Symbol", strokes, ports: [] },
+  }, { stroke: "#1c1915", sw: 0.55 * unit, fill: "none" });
+  for (const port of padPorts) {
+    el("circle", {
+      cx: port.x,
+      cy: port.y,
+      r: 1.15 * unit,
+      fill: "#fffcf7",
+      stroke: "#184e86",
+      "stroke-width": 0.4 * unit,
+    }, pad);
+    const vector = PORT_VECTOR[port.dir] || PORT_VECTOR.bottom;
+    el("line", {
+      x1: port.x,
+      y1: port.y,
+      x2: port.x + vector[0] * 2.4 * unit,
+      y2: port.y + vector[1] * 2.4 * unit,
+      stroke: "#184e86",
+      "stroke-width": 0.45 * unit,
+      "stroke-linecap": "round",
+    }, pad);
+  }
+  positionSymbolText();
+}
+
+function symbolTextInput() {
+  return document.getElementById("symbol-text-input");
+}
+
+function closeSymbolText() {
+  symbolTextEdit = null;
+  const input = symbolTextInput();
+  if (!input) return;
+  input.hidden = true;
+  input.value = "";
+}
+
+function positionSymbolText() {
+  const input = symbolTextInput();
+  if (!input || input.hidden || !symbolTextEdit) return;
+  const pad = document.getElementById("symbol-pad");
+  const dialog = document.getElementById("symbol-dialog");
+  const padRect = pad.getBoundingClientRect();
+  const dialogRect = dialog.getBoundingClientRect();
+  const px = ((symbolTextEdit.x - symbolView.x) / symbolView.size) * padRect.width;
+  const py = ((symbolTextEdit.y - symbolView.y) / symbolView.size) * padRect.height;
+  input.style.left = `${padRect.left - dialogRect.left + px}px`;
+  input.style.top = `${padRect.top - dialogRect.top + py}px`;
+}
+
+function openSymbolText(point, index) {
+  const input = symbolTextInput();
+  const existing = index >= 0 ? symbolStrokes[index] : null;
+  symbolTextEdit = {
+    index,
+    x: point.x,
+    y: point.y,
+    size: existing && existing.size ? existing.size : 7,
+  };
+  input.hidden = false;
+  input.value = existing ? existing.text : "";
+  positionSymbolText();
+  input.focus();
+  input.select();
+}
+
+function commitSymbolText() {
+  const input = symbolTextInput();
+  const edit = symbolTextEdit;
+  if (!input || input.hidden || !edit) return;
+  const text = input.value.trim().replace(/\s+/g, " ").slice(0, 40);
+  closeSymbolText();
+  if (!text) {
+    if (edit.index >= 0) symbolStrokes.splice(edit.index, 1);
+    renderSymbolPad();
+    return;
+  }
+  const stroke = sanitizeStroke({ kind: "text", x: edit.x, y: edit.y, text, size: edit.size });
+  if (!stroke) return;
+  if (edit.index >= 0) symbolStrokes[edit.index] = stroke;
+  else if (symbolStrokes.length < 40) symbolStrokes.push(stroke);
+  renderSymbolPad();
+}
+
+function hitSymbolText(point) {
+  const reach = Math.max(symbolReach() * 1.6, 1.2);
+  let found = -1;
+  symbolStrokes.forEach((stroke, index) => {
+    if (stroke.kind !== "text") return;
+    const half = Math.max(stroke.text.length * stroke.size * 0.32, reach);
+    if (Math.abs(point.x - stroke.x) <= half && Math.abs(point.y - stroke.y) <= Math.max(stroke.size, reach)) found = index;
+  });
+  return found;
+}
+
+function setSymbolTool(tool) {
+  commitSymbolText();
+  symbolTool = tool;
+  for (const name of ["line", "rect", "ellipse", "text", "point"]) {
+    document.getElementById(`symbol-${name}`).setAttribute("aria-pressed", name === tool ? "true" : "false");
+  }
+}
+
+function openSymbolEditor() {
+  symbolStrokes = [];
+  padPorts = [];
+  symbolDrag = null;
+  closeSymbolText();
+  symbolSnap = true;
+  document.getElementById("symbol-snap").setAttribute("aria-pressed", "true");
+  setSymbolTool("line");
+  document.getElementById("symbol-name").value = "";
+  document.getElementById("symbol-note").textContent = "";
+  setSymbolView(0, 0, 40);
+  document.getElementById("symbol-dialog").showModal();
+  document.getElementById("symbol-name").focus();
+}
+
+function hitSymbolPort(point) {
+  const reach = Math.max(symbolReach() * 1.4, 0.8);
+  let found = -1;
+  padPorts.forEach((port, index) => {
+    if (Math.hypot(port.x - point.x, port.y - point.y) <= reach) found = index;
+  });
+  return found;
+}
+
+function onSymbolPointerDown(event) {
+  if (event.button === 1 || event.button === 2) {
+    symbolDrag = {
+      kind: "pan",
+      x: event.clientX,
+      y: event.clientY,
+      viewX: symbolView.x,
+      viewY: symbolView.y,
+    };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // The view still moves while the pointer stays over the pad.
+    }
+    return;
+  }
+  if (event.button !== 0) return;
+  const raw = symbolRawPoint(event);
+  const point = symbolPadPoint(event);
+  if (symbolTool === "point") {
+    const index = hitSymbolPort(raw);
+    if (index >= 0 && event.shiftKey) {
+      padPorts.splice(index, 1);
+      padPorts.forEach((port, place) => { port.id = `n${place + 1}`; });
+      renderSymbolPad();
+      return;
+    }
+    if (index >= 0) {
+      const port = padPorts[index];
+      symbolDrag = { kind: "port", index, moved: false, x: port.x, y: port.y, rawX: raw.x, rawY: raw.y };
+    } else if (padPorts.length < 16) {
+      padPorts.push({
+        id: `n${padPorts.length + 1}`,
+        x: point.x,
+        y: point.y,
+        dir: symbolNearestSide(point.x, point.y),
+      });
+      symbolDrag = { kind: "port", index: padPorts.length - 1, moved: true, x: point.x, y: point.y };
+    }
+    if (symbolDrag) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // The point still moves while the pointer stays over the pad.
+      }
+    }
+    renderSymbolPad();
+    return;
+  }
+  if (symbolTool === "text") {
+    const index = hitSymbolText(raw);
+    if (index >= 0 && event.shiftKey) {
+      symbolStrokes.splice(index, 1);
+      renderSymbolPad();
+      return;
+    }
+    if (index >= 0) {
+      const stroke = symbolStrokes[index];
+      symbolDrag = { kind: "text", index, moved: false, x: stroke.x, y: stroke.y, rawX: raw.x, rawY: raw.y };
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // The words still move while the pointer stays over the pad.
+      }
+      return;
+    }
+    if (symbolStrokes.length < 40) openSymbolText(point, -1);
+    return;
+  }
+  if (symbolStrokes.length >= 40) return;
+  symbolDrag = { kind: symbolTool, x: point.x, y: point.y, point };
+  try {
+    event.currentTarget.setPointerCapture(event.pointerId);
+  } catch (error) {
+    // The stroke still ends on pointerup.
+  }
+}
+
+function onSymbolPointerMove(event) {
+  if (!symbolDrag) return;
+  if (symbolDrag.kind === "pan") {
+    const pad = document.getElementById("symbol-pad");
+    const rect = pad.getBoundingClientRect();
+    const dx = rect.width ? ((event.clientX - symbolDrag.x) / rect.width) * symbolView.size : 0;
+    const dy = rect.height ? ((event.clientY - symbolDrag.y) / rect.height) * symbolView.size : 0;
+    setSymbolView(symbolDrag.viewX - dx, symbolDrag.viewY - dy, symbolView.size);
+    return;
+  }
+  const point = symbolPadPoint(event);
+  if (symbolDrag.kind === "port") {
+    const rawNow = symbolRawPoint(event);
+    const moved = Math.hypot(rawNow.x - symbolDrag.rawX, rawNow.y - symbolDrag.rawY) > Math.max(symbolReach() * 0.55, 0.4);
+    if (moved) symbolDrag.moved = true;
+    if (!symbolDrag.moved) return;
+    const port = padPorts[symbolDrag.index];
+    port.x = point.x;
+    port.y = point.y;
+    port.dir = symbolNearestSide(point.x, point.y);
+    renderSymbolPad();
+    return;
+  }
+  if (symbolDrag.kind === "text") {
+    const rawNow = symbolRawPoint(event);
+    const moved = Math.hypot(rawNow.x - symbolDrag.rawX, rawNow.y - symbolDrag.rawY) > Math.max(symbolReach() * 0.55, 0.4);
+    if (moved) symbolDrag.moved = true;
+    if (!symbolDrag.moved) return;
+    const stroke = symbolStrokes[symbolDrag.index];
+    stroke.x = point.x;
+    stroke.y = point.y;
+    renderSymbolPad();
+    return;
+  }
+  symbolDrag.point = point;
+  symbolDrag.preview = symbolStroke(symbolDrag.kind, symbolDrag.x, symbolDrag.y, point.x, point.y);
+  renderSymbolPad();
+}
+
+function onSymbolPointerUp() {
+  if (!symbolDrag) return;
+  const drag = symbolDrag;
+  symbolDrag = null;
+  if (drag.kind === "pan") return;
+  if (drag.kind === "port") {
+    if (!drag.moved) {
+      const port = padPorts[drag.index];
+      const dirs = ["top", "right", "bottom", "left"];
+      port.dir = dirs[(dirs.indexOf(port.dir) + 1) % dirs.length];
+    }
+    renderSymbolPad();
+    return;
+  }
+  if (drag.kind === "text") {
+    const stroke = symbolStrokes[drag.index];
+    if (stroke && !drag.moved) openSymbolText({ x: stroke.x, y: stroke.y }, drag.index);
+    else renderSymbolPad();
+    return;
+  }
+  if (drag.preview && symbolStrokes.length < 40) symbolStrokes.push(drag.preview);
+  renderSymbolPad();
+}
+
+function saveCustomSymbol(event) {
+  event.preventDefault();
+  commitSymbolText();
+  const note = document.getElementById("symbol-note");
+  const name = document.getElementById("symbol-name").value.trim().replace(/\s+/g, " ");
+  if (!name || !symbolStrokes.length) {
+    note.textContent = ui("symbol-empty");
+    return;
+  }
+  note.textContent = "";
+  fetch("/api/symbols", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name,
+      strokes: symbolStrokes,
+      ports: padPorts.map((port) => ({ x: port.x, y: port.y, dir: port.dir })),
+    }),
+  })
+    .then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (payload.error === "full") note.textContent = ui("symbol-full");
+        else if (payload.error === "store") note.textContent = ui("symbol-store");
+        else note.textContent = ui("symbol-failed");
+        return;
+      }
+      document.getElementById("symbol-dialog").close();
+      setStatus(ui("symbol-saved"));
+      loadCustomSymbols();
+    })
+    .catch(() => {
+      note.textContent = ui("symbol-failed");
+    });
+}
+
+document.getElementById("symbol-zoom-in").addEventListener("click", () => zoomSymbol(1.25));
+document.getElementById("symbol-zoom-out").addEventListener("click", () => zoomSymbol(1 / 1.25));
+document.getElementById("symbol-snap").addEventListener("click", () => {
+  symbolSnap = !symbolSnap;
+  document.getElementById("symbol-snap").setAttribute("aria-pressed", symbolSnap ? "true" : "false");
+});
+document.getElementById("symbol-new").addEventListener("click", openSymbolEditor);
+document.getElementById("symbol-cancel").addEventListener("click", () => {
+  closeSymbolText();
+  document.getElementById("symbol-dialog").close();
+});
+document.getElementById("symbol-form").addEventListener("submit", saveCustomSymbol);
+const symbolTextField = document.getElementById("symbol-text-input");
+symbolTextField.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeSymbolText();
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    commitSymbolText();
+  }
+});
+symbolTextField.addEventListener("blur", () => commitSymbolText());
+for (const name of ["line", "rect", "ellipse", "text", "point"]) {
+  document.getElementById(`symbol-${name}`).addEventListener("click", () => setSymbolTool(name));
+}
+const symbolPad = document.getElementById("symbol-pad");
+symbolPad.addEventListener("pointerdown", onSymbolPointerDown);
+symbolPad.addEventListener("pointermove", onSymbolPointerMove);
+symbolPad.addEventListener("pointerup", onSymbolPointerUp);
+symbolPad.addEventListener("pointercancel", onSymbolPointerUp);
+symbolPad.addEventListener("contextmenu", (event) => event.preventDefault());
+symbolPad.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  zoomSymbol(event.deltaY < 0 ? 1.25 : 1 / 1.25, symbolRawPoint(event));
+}, { passive: false });
+
 buildMasters();
+loadCustomSymbols();
 const langSelect = document.getElementById("lang");
 langSelect.addEventListener("change", () => applyLanguage(langSelect.value));
 state.savedSnapshot = serialize();

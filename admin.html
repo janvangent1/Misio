@@ -160,7 +160,7 @@
             <div id="country-list"></div>
           </div>
         </div>
-        <p class="admin-note">Each visitor is counted once. The country is the one Cloudflare reports for the public site.</p>
+        <p class="admin-note">Each accepted visitor is counted once, with the browser and the country Cloudflare reports. An open with no cookie is counted on its own, with neither.</p>
       </div>
       <div class="admin-card">
         <div class="card-head">
@@ -335,6 +335,7 @@
       statGrid.replaceChildren(
         statCell(String(usageData.opens || 0), "Pages opened"),
         statCell(String(usageData.visitors || 0), "Visitors"),
+        statCell(String(usageData.withoutCookie || 0), "No cookie"),
         statCell(usageData.lastOpen || "—", "Last open"),
         statCell(String(languages.en || 0), languageNames.en),
         statCell(String(languages.nl || 0), languageNames.nl),

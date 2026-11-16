@@ -51,7 +51,8 @@ Then open http://<the-pi>:8765/.
 The first visit shows a short notice. Accept stores one cookie and counts
 return visits, the browser, and the country Cloudflare reports. Refuse still
 opens the editor. That visit counts as a page open, not as a returning
-visitor. The drawing, the language, and snap stay in the browser either way.
+visitor, and the admin page counts it on its own, with no browser or country.
+The drawing, the language, and snap stay in the browser either way.
 
 Report, in the top bar, sends a bug or a request. The words are stored as
 written. Admin, at the bottom of the shape list, opens /admin.html.
@@ -60,6 +61,7 @@ after signing in. The page then shows:
 
     visitors over the past day, week, and month
     browsers, and countries, counted once for each visitor who accepted
+    opens with no cookie, counted apart from visitors
     errors from the page and from the server
     the reports, with Remove on each one
 
@@ -70,7 +72,12 @@ stopped, a report says it could not be saved. If the folder cannot be
 written, the admin page names the file and the reason, and the same line is
 in journalctl -u misio.
 
-python3 -m http.server only hands out the page. It does not store reports.
+Custom symbols are JSON files in a "custom symbols" folder next to serve.py,
+one file per symbol. That folder is not in git, and a deploy does not upload
+it, so symbols already on the Pi stay there.
+
+python3 -m http.server only hands out the page. It does not store reports
+or custom symbols.
 
 Drawings still download as JSON in the browser that made them.
 
@@ -115,6 +122,15 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
                         Double-click the name to rename it. Select a lane
                         and use Color to give that lane its own color.
                         Steps inside the lane move with it.
+    New symbol          under the shape list. Draw lines, rectangles,
+                        and ellipses, and place Text on the symbol.
+                        Point sets where a wire attaches: drag it,
+                        click it to change the side the wire leaves,
+                        and Shift-click removes it. The wheel zooms
+                        the pad, and the right mouse button moves
+                        the view. Snap joins a stroke to a nearby
+                        line, rectangle, or ellipse. Save puts it in
+                        the Custom group for everyone on that server.
     Legend              add a key of every symbol used on the page,
                         in the bottom right corner. Click it again
                         to refresh the key.
@@ -164,6 +180,13 @@ pump, valves, tank, boiler, radiator, tap, meter, and heat exchanger.
 A wire between two of these symbols is a plain line. Double-click a
 symbol to add a rating.
 
+Custom symbols appear in the Custom group after someone saves one. The name,
+and any words drawn on the symbol, stay as typed. Only a signed-in admin can
+remove one from the list. A shape already on the page keeps its own copy, so
+Save, PDF, and a later Open still show it. A wire between two custom symbols,
+or between a custom symbol and one of the groups above, is a plain line.
+Double-click the shape to add a caption under the symbol.
+
 
 Example
 -------
@@ -184,7 +207,8 @@ Files
     schematic.js        vehicle, pneumatic, and plumbing symbols
     visio.js            open and save Visio .vsdx files
     misio.py            the Windows launcher, for trying the page on a PC
-    serve.py            the server. Stores reports, visits, and errors
+    serve.py            the server. Stores reports, visits, errors,
+                        and custom symbols
     admin.html          the admin page
     deploy/SETUP.md     how to run it on the Raspberry Pi
     favicon.svg         the browser icon
@@ -202,5 +226,8 @@ A saved diagram is JSON:
     shapes: id, type, x, y, w, h, text. rotation may be
             90, 180, or 270. A swimlane may also
             set axis to "row" or "column", and color to "#rrggbb".
+            A custom symbol also keeps its own copy: name,
+            strokes (line, rectangle, ellipse, or text), and
+            connection points.
     connectors: id, fromId, fromPort, toId, toPort, text, ends.
                 A connector may also set color to "#rrggbb".
