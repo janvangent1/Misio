@@ -150,6 +150,7 @@
         <button id="symbol-undo" type="button" data-ui="undo" data-ui-title="undo-title" title="Undo (Ctrl+Z)" disabled>Undo</button>
         <button id="symbol-redo" type="button" data-ui="redo" data-ui-title="redo-title" title="Redo (Ctrl+Y)" disabled>Redo</button>
         <button id="symbol-image" type="button" data-ui="symbol-image" data-ui-title="symbol-image-title" title="Use a picture as the background">Image</button>
+        <button id="symbol-image-turn" type="button" data-ui="symbol-image-turn" data-ui-title="symbol-image-turn-title" title="Turn the picture a quarter turn" hidden>Turn</button>
         <button id="symbol-image-clear" type="button" data-ui="symbol-image-clear" hidden>Clear image</button>
         <input id="symbol-image-file" type="file" accept="image/*,.bmp,.jpg,.jpeg,.png,.gif,.webp,.tif,.tiff,.ico" hidden>
       </div>
@@ -159,7 +160,7 @@
         <button id="symbol-text-larger" type="button" data-ui-title="symbol-text-larger" title="Larger text">A+</button>
       </div>
       <svg id="symbol-pad" viewBox="0 0 40 40" role="img" data-ui-label="symbol-pad" aria-label="Symbol drawing"></svg>
-      <p class="hint" data-ui="symbol-hint">Select moves a stroke. Shift-click or Delete removes it. Draw with line, rectangle, ellipse, circle, polyline, or dot. Fill and Thick set the next shape, and change the selected one. For text, click the pad, type, and press Enter. Connector is where a wire meets the symbol. Image places a picture behind the drawing. The wheel zooms in and out. Zooming out past the whole symbol makes the icon larger, up to four times the usual size. The right mouse button moves the view. Snap pulls onto the grid or onto another stroke.</p>
+      <p class="hint" data-ui="symbol-hint">Select moves a stroke. Shift-click or Delete removes it. Draw with line, rectangle, ellipse, circle, polyline, or dot. Fill and Thick set the next shape, and change the selected one. For text, click the pad, type, and press Enter. Connector is where a wire meets the symbol. Image places a picture behind the drawing. Select it, drag to move, drag a corner to stretch, and drag an edge to crop. The wheel zooms in and out. Zooming out past the whole symbol makes the icon larger, up to four times the usual size. The right mouse button moves the view. Snap pulls onto the grid or onto another stroke.</p>
       <p id="symbol-note" class="report-note" role="status"></p>
       <div class="report-actions">
         <button id="symbol-cancel" type="button" data-ui="cancel">Cancel</button>

@@ -1053,6 +1053,25 @@ function sanitizeSymbol(raw) {
   return symbol;
 }
 
+function imageUnit(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 1) return null;
+  return Math.round(number * 10000) / 10000;
+}
+
+function sanitizeImageCrop(raw) {
+  if (!raw) return null;
+  if (typeof raw !== "object") return undefined;
+  const x = imageUnit(raw.x);
+  const y = imageUnit(raw.y);
+  const w = imageUnit(raw.w);
+  const h = imageUnit(raw.h);
+  if (x == null || y == null || w == null || h == null) return undefined;
+  if (w < 0.05 || h < 0.05 || x + w > 1.001 || y + h > 1.001) return undefined;
+  if (x <= 0.0001 && y <= 0.0001 && w >= 0.9999 && h >= 0.9999) return null;
+  return { x, y, w, h };
+}
+
 function sanitizeSymbolImage(image, limit) {
   if (!image || typeof image !== "object") return null;
   const href = String(image.href || "");
@@ -1063,7 +1082,12 @@ function sanitizeSymbolImage(image, limit) {
   const h = symbolNumber(image.h, limit);
   if (x == null || y == null || w == null || h == null) return null;
   if (w < 1 || h < 1 || x + w > limit + 0.01 || y + h > limit + 0.01) return null;
-  return { href, x, y, w, h };
+  const crop = sanitizeImageCrop(image.crop);
+  if (crop === undefined) return null;
+  const picture = { href, x, y, w, h };
+  if (crop) picture.crop = crop;
+  if (shapeAngle(image)) picture.rotation = shapeAngle(image);
+  return picture;
 }
 
 function customSymbol(shape) {
@@ -1097,18 +1121,31 @@ function customIconPoint(shape, nx, ny) {
   };
 }
 
+function imageCropOf(image) {
+  return image && image.crop ? image.crop : { x: 0, y: 0, w: 1, h: 1 };
+}
+
 function drawSymbolImage(parent, shape) {
   const image = shape.symbol && shape.symbol.image;
   if (!image || !image.href) return;
-  const origin = customIconPoint(shape, image.x, image.y);
-  const far = customIconPoint(shape, image.x + image.w, image.y + image.h);
-  const node = el("image", {
+  const local = contentShape({ x: image.x, y: image.y, w: image.w, h: image.h, rotation: image.rotation || 0 });
+  const origin = customIconPoint(shape, local.x, local.y);
+  const far = customIconPoint(shape, local.x + local.w, local.y + local.h);
+  const center = customIconPoint(shape, image.x + image.w / 2, image.y + image.h / 2);
+  const crop = imageCropOf(image);
+  const holder = local.turn
+    ? el("g", { transform: `rotate(${local.turn} ${center.x} ${center.y})` }, parent)
+    : parent;
+  const frame = el("svg", {
     x: origin.x,
     y: origin.y,
     width: Math.max(0.1, far.x - origin.x),
     height: Math.max(0.1, far.y - origin.y),
+    viewBox: `${crop.x} ${crop.y} ${crop.w} ${crop.h}`,
     preserveAspectRatio: "none",
-  }, parent);
+    overflow: "hidden",
+  }, holder);
+  const node = el("image", { x: 0, y: 0, width: 1, height: 1, preserveAspectRatio: "none" }, frame);
   node.setAttribute("href", image.href);
   node.setAttributeNS("http://www.w3.org/1999/xlink", "href", image.href);
 }
@@ -2786,15 +2823,29 @@ function paintSymbolPhoto(context, shape, scale) {
   return new Promise((resolve) => {
     const picture = new Image();
     picture.onload = () => {
-      const origin = customIconPoint(shape, photo.x, photo.y);
-      const far = customIconPoint(shape, photo.x + photo.w, photo.y + photo.h);
+      const local = contentShape({ x: photo.x, y: photo.y, w: photo.w, h: photo.h, rotation: photo.rotation || 0 });
+      const origin = customIconPoint(shape, local.x, local.y);
+      const far = customIconPoint(shape, local.x + local.w, local.y + local.h);
+      const crop = imageCropOf(photo);
+      context.save();
+      if (local.turn) {
+        const center = customIconPoint(shape, photo.x + photo.w / 2, photo.y + photo.h / 2);
+        context.translate(center.x * scale, center.y * scale);
+        context.rotate((local.turn * Math.PI) / 180);
+        context.translate(-center.x * scale, -center.y * scale);
+      }
       context.drawImage(
         picture,
+        crop.x * picture.width,
+        crop.y * picture.height,
+        Math.max(1, crop.w * picture.width),
+        Math.max(1, crop.h * picture.height),
         origin.x * scale,
         origin.y * scale,
         Math.max(1, (far.x - origin.x) * scale),
         Math.max(1, (far.y - origin.y) * scale),
       );
+      context.restore();
       resolve();
     };
     picture.onerror = () => resolve();
@@ -4412,6 +4463,7 @@ let symbolUndo = [];
 let symbolRedo = [];
 let symbolTextSize = 7;
 let symbolImage = null;
+let symbolImageOn = false;
 
 function customMasters() {
   return customLibrary.map((symbol) => {
@@ -4565,6 +4617,7 @@ function applySymbolSnapshot(snap) {
   padPorts = data.ports;
   symbolExtent = data.extent || 40;
   symbolImage = data.image || null;
+  if (!symbolImage) symbolImageOn = false;
   symbolSelected = -1;
   symbolChain = null;
   symbolTextEdit = null;
@@ -4606,6 +4659,11 @@ function onSymbolKey(event) {
     return;
   }
   if (typing) return;
+  if ((event.key === "Delete" || event.key === "Backspace") && symbolImageOn) {
+    event.preventDefault();
+    clearSymbolImage();
+    return;
+  }
   if ((event.key === "Delete" || event.key === "Backspace") && symbolSelected >= 0) {
     event.preventDefault();
     deleteSelectedSymbolStroke();
@@ -5029,6 +5087,32 @@ function renderSymbolPad() {
       "stroke-linecap": "round",
     }, pad);
   }
+  if (symbolImageOn && symbolImage && symbolTool === "select") {
+    const unitBox = 1.5 * unit;
+    el("rect", {
+      x: symbolImage.x,
+      y: symbolImage.y,
+      width: symbolImage.w,
+      height: symbolImage.h,
+      fill: "none",
+      stroke: "#184e86",
+      "stroke-width": 0.35 * unit,
+      "stroke-dasharray": `${1.1 * unit} ${0.7 * unit}`,
+    }, pad);
+    for (const [name, hx, hy] of symbolImageHandles(symbolImage)) {
+      const edge = name.length === 1;
+      const wide = name === "n" || name === "s";
+      el("rect", {
+        x: hx - (edge && !wide ? unitBox * 0.35 : unitBox),
+        y: hy - (edge && wide ? unitBox * 0.35 : unitBox),
+        width: edge && !wide ? unitBox * 0.7 : unitBox * 2,
+        height: edge && wide ? unitBox * 0.7 : unitBox * 2,
+        fill: "#fffcf7",
+        stroke: "#184e86",
+        "stroke-width": 0.28 * unit,
+      }, pad);
+    }
+  }
   syncSymbolStyleButtons();
   syncSymbolImageButton();
 }
@@ -5198,6 +5282,7 @@ function hitSymbolText(point) {
 function setSymbolTool(tool) {
   commitSymbolText();
   if (symbolChain) finishSymbolChain();
+  symbolImageOn = false;
   symbolTool = tool;
   const row = document.getElementById("symbol-text-row");
   if (row) row.hidden = tool !== "text";
@@ -5220,6 +5305,7 @@ function openSymbolEditor() {
   symbolTextSize = 7;
   symbolExtent = 40;
   symbolImage = null;
+  symbolImageOn = false;
   symbolSnap = true;
   const file = document.getElementById("symbol-image-file");
   if (file) file.value = "";
@@ -5248,6 +5334,161 @@ function hitSymbolPort(point) {
   return found;
 }
 
+function symbolImagePoint(event) {
+  const raw = symbolRawPoint(event);
+  if (!symbolSnap || event.shiftKey) return raw;
+  const step = symbolGridStep();
+  return {
+    x: Math.round(raw.x / step) * step,
+    y: Math.round(raw.y / step) * step,
+  };
+}
+
+function symbolImageHandles(image) {
+  const { x, y, w, h } = image;
+  return [
+    ["nw", x, y],
+    ["n", x + w / 2, y],
+    ["ne", x + w, y],
+    ["e", x + w, y + h / 2],
+    ["se", x + w, y + h],
+    ["s", x + w / 2, y + h],
+    ["sw", x, y + h],
+    ["w", x, y + h / 2],
+  ];
+}
+
+function hitSymbolImageHandle(point) {
+  if (!symbolImageOn || !symbolImage) return "";
+  const reach = Math.max(symbolReach() * 1.3, 0.9);
+  let found = "";
+  for (const [name, x, y] of symbolImageHandles(symbolImage)) {
+    if (Math.abs(point.x - x) <= reach && Math.abs(point.y - y) <= reach) found = name;
+  }
+  return found;
+}
+
+function hitSymbolImageBody(point) {
+  const image = symbolImage;
+  if (!image) return false;
+  return point.x >= image.x && point.x <= image.x + image.w && point.y >= image.y && point.y <= image.y + image.h;
+}
+
+function clampSymbol(value, low, high) {
+  return Math.min(high, Math.max(low, value));
+}
+
+function layoutSymbolImage(origin, handle, point) {
+  const minSize = 4;
+  const extent = symbolExtent;
+  const crop = { ...(origin.crop || { x: 0, y: 0, w: 1, h: 1 }) };
+  let x = origin.x;
+  let y = origin.y;
+  let w = origin.w;
+  let h = origin.h;
+  const right = origin.x + origin.w;
+  const bottom = origin.y + origin.h;
+  if (handle === "move") {
+    x = clampSymbol(point.x, 0, extent - w);
+    y = clampSymbol(point.y, 0, extent - h);
+  } else if (handle.length === 2) {
+    if (handle.includes("w")) x = clampSymbol(point.x, 0, right - minSize);
+    if (handle.includes("n")) y = clampSymbol(point.y, 0, bottom - minSize);
+    const nextRight = handle.includes("e") ? clampSymbol(point.x, origin.x + minSize, extent) : right;
+    const nextBottom = handle.includes("s") ? clampSymbol(point.y, origin.y + minSize, extent) : bottom;
+    w = (handle.includes("w") ? right : nextRight) - x;
+    h = (handle.includes("n") ? bottom : nextBottom) - y;
+  } else if (handle === "w" || handle === "e") {
+    const sourceRight = crop.x + crop.w;
+    if (handle === "w") {
+      x = clampSymbol(point.x, 0, right - minSize);
+      w = right - x;
+      let nextW = crop.w * (w / origin.w);
+      let nextX = sourceRight - nextW;
+      if (nextX < 0) {
+        nextX = 0;
+        nextW = sourceRight;
+      }
+      if (nextW < 0.05) {
+        nextW = 0.05;
+        nextX = Math.max(0, sourceRight - nextW);
+      }
+      crop.x = nextX;
+      crop.w = nextW;
+    } else {
+      w = clampSymbol(point.x, x + minSize, extent) - x;
+      let nextW = crop.w * (w / origin.w);
+      if (crop.x + nextW > 1) nextW = 1 - crop.x;
+      if (nextW < 0.05) nextW = 0.05;
+      crop.w = nextW;
+    }
+  } else if (handle === "n" || handle === "s") {
+    const sourceBottom = crop.y + crop.h;
+    if (handle === "n") {
+      y = clampSymbol(point.y, 0, bottom - minSize);
+      h = bottom - y;
+      let nextH = crop.h * (h / origin.h);
+      let nextY = sourceBottom - nextH;
+      if (nextY < 0) {
+        nextY = 0;
+        nextH = sourceBottom;
+      }
+      if (nextH < 0.05) {
+        nextH = 0.05;
+        nextY = Math.max(0, sourceBottom - nextH);
+      }
+      crop.y = nextY;
+      crop.h = nextH;
+    } else {
+      h = clampSymbol(point.y, y + minSize, extent) - y;
+      let nextH = crop.h * (h / origin.h);
+      if (crop.y + nextH > 1) nextH = 1 - crop.y;
+      if (nextH < 0.05) nextH = 0.05;
+      crop.h = nextH;
+    }
+  }
+  crop.x = clampSymbol(crop.x, 0, 0.95);
+  crop.y = clampSymbol(crop.y, 0, 0.95);
+  crop.w = clampSymbol(crop.w, 0.05, 1 - crop.x);
+  crop.h = clampSymbol(crop.h, 0.05, 1 - crop.y);
+  const picture = {
+    href: origin.href,
+    x: Math.round(x * 100) / 100,
+    y: Math.round(y * 100) / 100,
+    w: Math.round(Math.max(minSize, w) * 100) / 100,
+    h: Math.round(Math.max(minSize, h) * 100) / 100,
+  };
+  const stored = sanitizeImageCrop(crop);
+  if (stored) picture.crop = stored;
+  if (origin.rotation) picture.rotation = origin.rotation;
+  return picture;
+}
+
+function turnSymbolImage() {
+  if (!symbolImage) return;
+  const before = symbolSnapshot();
+  const image = symbolImage;
+  const w = image.h;
+  const h = image.w;
+  const x = Math.min(symbolExtent - w, Math.max(0, image.x + image.w / 2 - w / 2));
+  const y = Math.min(symbolExtent - h, Math.max(0, image.y + image.h / 2 - h / 2));
+  const rotation = ((image.rotation || 0) + 90) % 360;
+  symbolImage = {
+    href: image.href,
+    x: Math.round(x * 100) / 100,
+    y: Math.round(y * 100) / 100,
+    w: Math.round(w * 100) / 100,
+    h: Math.round(h * 100) / 100,
+  };
+  if (image.crop) symbolImage.crop = image.crop;
+  if (rotation) symbolImage.rotation = rotation;
+  symbolImageOn = true;
+  setSymbolTool("select");
+  symbolImageOn = true;
+  pushSymbolHistory(before);
+  renderSymbolPad();
+}
+
 function onSymbolPointerDown(event) {
   if (event.button === 1 || event.button === 2) {
     symbolDrag = {
@@ -5268,14 +5509,35 @@ function onSymbolPointerDown(event) {
   const raw = symbolRawPoint(event);
   const point = symbolPadPoint(event);
   if (symbolTool === "select") {
+    const imageHandle = hitSymbolImageHandle(raw);
+    if (imageHandle && symbolImage) {
+      symbolSelected = -1;
+      symbolDrag = {
+        kind: "image",
+        handle: imageHandle,
+        before: symbolSnapshot(),
+        origin: JSON.parse(JSON.stringify(symbolImage)),
+        rawX: raw.x,
+        rawY: raw.y,
+      };
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // The picture still changes while the pointer stays over the pad.
+      }
+      renderSymbolPad();
+      return;
+    }
     const index = hitSymbolStroke(raw);
     if (index >= 0 && event.shiftKey) {
+      symbolImageOn = false;
       symbolSelected = index;
       deleteSelectedSymbolStroke();
       return;
     }
-    symbolSelected = index;
     if (index >= 0) {
+      symbolImageOn = false;
+      symbolSelected = index;
       symbolDrag = {
         kind: "move",
         index,
@@ -5289,7 +5551,34 @@ function onSymbolPointerDown(event) {
       } catch (error) {
         // The stroke still moves while the pointer stays over the pad.
       }
+      renderSymbolPad();
+      return;
     }
+    if (symbolImage && hitSymbolImageBody(raw)) {
+      if (event.shiftKey) {
+        clearSymbolImage();
+        return;
+      }
+      symbolSelected = -1;
+      symbolImageOn = true;
+      symbolDrag = {
+        kind: "image",
+        handle: "move",
+        before: symbolSnapshot(),
+        origin: JSON.parse(JSON.stringify(symbolImage)),
+        rawX: raw.x,
+        rawY: raw.y,
+      };
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // The picture still moves while the pointer stays over the pad.
+      }
+      renderSymbolPad();
+      return;
+    }
+    symbolImageOn = false;
+    symbolSelected = -1;
     renderSymbolPad();
     return;
   }
@@ -5444,6 +5733,17 @@ function onSymbolPointerMove(event) {
     renderSymbolPad();
     return;
   }
+  if (symbolDrag.kind === "image") {
+    const at = symbolImagePoint(event);
+    const dx = at.x - symbolDrag.rawX;
+    const dy = at.y - symbolDrag.rawY;
+    const point = symbolDrag.handle === "move"
+      ? { x: symbolDrag.origin.x + dx, y: symbolDrag.origin.y + dy }
+      : at;
+    symbolImage = layoutSymbolImage(symbolDrag.origin, symbolDrag.handle, point);
+    renderSymbolPad();
+    return;
+  }
   if (symbolDrag.kind === "text") {
     const rawNow = symbolRawPoint(event);
     const moved = Math.hypot(rawNow.x - symbolDrag.rawX, rawNow.y - symbolDrag.rawY) > Math.max(symbolReach() * 0.55, 0.4);
@@ -5475,7 +5775,7 @@ function onSymbolPointerUp() {
     renderSymbolPad();
     return;
   }
-  if (drag.kind === "move") {
+  if (drag.kind === "move" || drag.kind === "image") {
     pushSymbolHistory(drag.before);
     renderSymbolPad();
     return;
@@ -5540,7 +5840,9 @@ document.getElementById("symbol-zoom-in").addEventListener("click", () => zoomSy
 document.getElementById("symbol-zoom-out").addEventListener("click", () => zoomSymbol(1 / 1.25));
 function syncSymbolImageButton() {
   const clear = document.getElementById("symbol-image-clear");
+  const turn = document.getElementById("symbol-image-turn");
   if (clear) clear.hidden = !symbolImage;
+  if (turn) turn.hidden = !symbolImage;
 }
 
 function fitSymbolImage(pixelW, pixelH) {
@@ -5615,6 +5917,8 @@ function chooseSymbolImage(file) {
     .then((image) => {
       const before = symbolSnapshot();
       symbolImage = image;
+      setSymbolTool("select");
+      symbolImageOn = true;
       if (note) note.textContent = "";
       pushSymbolHistory(before);
       renderSymbolPad();
@@ -5628,6 +5932,7 @@ function clearSymbolImage() {
   if (!symbolImage) return;
   const before = symbolSnapshot();
   symbolImage = null;
+  symbolImageOn = false;
   const file = document.getElementById("symbol-image-file");
   if (file) file.value = "";
   pushSymbolHistory(before);
@@ -5638,6 +5943,7 @@ document.getElementById("symbol-image").addEventListener("click", () => {
   document.getElementById("symbol-image-file").click();
 });
 document.getElementById("symbol-image-clear").addEventListener("click", clearSymbolImage);
+document.getElementById("symbol-image-turn").addEventListener("click", turnSymbolImage);
 document.getElementById("symbol-image-file").addEventListener("change", (event) => {
   const file = event.target.files && event.target.files[0];
   event.target.value = "";

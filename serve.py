@@ -254,7 +254,40 @@ def _clean_image(value, limit: float) -> dict | None:
     x, y, width, height = box
     if width < 1 or height < 1 or x + width > limit + 0.01 or y + height > limit + 0.01:
         return None
-    return {"href": href, "x": x, "y": y, "w": width, "h": height}
+    crop = _clean_image_crop(value.get("crop"))
+    if value.get("crop") not in (None, "") and crop is False:
+        return None
+    turn = value.get("rotation")
+    if turn not in (None, 0, 90, 180, 270):
+        return None
+    image = {"href": href, "x": x, "y": y, "w": width, "h": height}
+    if crop:
+        image["crop"] = crop
+    if turn:
+        image["rotation"] = turn
+    return image
+
+
+def _clean_image_crop(value):
+    if value is None or value == "":
+        return None
+    if not isinstance(value, dict):
+        return False
+    box = []
+    for key in ("x", "y", "w", "h"):
+        number = value.get(key)
+        if isinstance(number, bool) or not isinstance(number, (int, float)):
+            return False
+        number = float(number)
+        if not math.isfinite(number) or number < 0 or number > 1:
+            return False
+        box.append(round(number, 4))
+    x, y, width, height = box
+    if width < 0.05 or height < 0.05 or x + width > 1.001 or y + height > 1.001:
+        return False
+    if x <= 0.0001 and y <= 0.0001 and width >= 0.9999 and height >= 0.9999:
+        return None
+    return {"x": x, "y": y, "w": width, "h": height}
 
 
 def _symbol_path(symbol_id: str) -> Path | None:
