@@ -3853,6 +3853,11 @@ function masterMatches(master, query) {
 
 function buildMasters() {
   const query = shapeSearch.value.trim().toLowerCase();
+  const newSymbol = document.getElementById("symbol-new");
+  if (newSymbol) {
+    newSymbol.hidden = true;
+    mastersEl.parentElement.appendChild(newSymbol);
+  }
   mastersEl.replaceChildren();
   for (const master of MASTERS) {
     if (master.category && master.category !== "standard") continue;
@@ -3882,8 +3887,14 @@ function buildMasters() {
   const customNodes = customMasters()
     .filter((master) => masterMatches(master, query))
     .map(customMasterRow);
-  if (customNodes.length) {
+  const newSymbolWords = (newSymbol ? newSymbol.textContent : "").trim().toLowerCase();
+  const showNewSymbol = !query || query.split(/\s+/).filter(Boolean).every((word) => newSymbolWords.includes(word));
+  if (customNodes.length || showNewSymbol) {
     const custom = symbolGroup(ui("custom-symbols"), customNodes, false, "custom");
+    if (showNewSymbol && newSymbol) {
+      newSymbol.hidden = false;
+      custom.querySelector(".symbol-group-items").appendChild(newSymbol);
+    }
     custom.open = true;
     mastersEl.appendChild(custom);
   }
