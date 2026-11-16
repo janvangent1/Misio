@@ -33,6 +33,7 @@ SYMBOL_NAME_LIMIT = 80
 SYMBOL_STROKE_LIMIT = 40
 SYMBOL_PORT_LIMIT = 16
 SYMBOL_FILE_LIMIT = 200
+SYMBOL_EXTENT_MAX = 160.0
 ADMIN_USER = "admin"
 FIRST_PASSWORD = "100"
 SESSION_COOKIE = "misio_admin"
@@ -105,38 +106,81 @@ def _save_password(password: str) -> None:
         _write_text(ADMIN_PATH, json.dumps(record))
 
 
-def _symbol_number(value) -> float | None:
+def _symbol_extent(value) -> float | None:
+    if value is None:
+        return 40.0
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     number = float(value)
-    if not math.isfinite(number) or number < 0 or number > 40:
+    if not math.isfinite(number) or number < 40 or number > SYMBOL_EXTENT_MAX:
         return None
     return round(number, 2)
 
 
-def _clean_stroke(item) -> dict | None:
+def _symbol_number(value, limit: float = 40.0) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or number > limit:
+        return None
+    return round(number, 2)
+
+
+def _stroke_style(item: dict, stroke: dict) -> dict:
+    if item.get("weight") == 2 and stroke.get("kind") != "text":
+        stroke["weight"] = 2
+    kind = stroke.get("kind")
+    can_fill = kind in ("rect", "ellipse") or (kind == "polyline" and stroke.get("closed") is True)
+    if item.get("fill") is True and can_fill:
+        stroke["fill"] = True
+    return stroke
+
+
+def _clean_stroke(item, limit: float = 40.0) -> dict | None:
     if not isinstance(item, dict):
         return None
     kind = item.get("kind")
     if kind == "line":
-        coords = [_symbol_number(item.get(key)) for key in ("x1", "y1", "x2", "y2")]
+        coords = [_symbol_number(item.get(key), limit) for key in ("x1", "y1", "x2", "y2")]
         if any(value is None for value in coords):
             return None
         x1, y1, x2, y2 = coords
         if math.hypot(x2 - x1, y2 - y1) < 0.5:
             return None
-        return {"kind": "line", "x1": x1, "y1": y1, "x2": x2, "y2": y2}
+        return _stroke_style(item, {"kind": "line", "x1": x1, "y1": y1, "x2": x2, "y2": y2})
+    if kind == "polyline":
+        raw_points = item.get("points")
+        if not isinstance(raw_points, list) or not 2 <= len(raw_points) <= 24:
+            return None
+        points = []
+        for point in raw_points:
+            if not isinstance(point, dict):
+                return None
+            x = _symbol_number(point.get("x"), limit)
+            y = _symbol_number(point.get("y"), limit)
+            if x is None or y is None:
+                return None
+            points.append({"x": x, "y": y})
+        length = 0.0
+        for start, end in zip(points, points[1:]):
+            length += math.hypot(end["x"] - start["x"], end["y"] - start["y"])
+        if length < 0.5:
+            return None
+        stroke = {"kind": "polyline", "points": points}
+        if item.get("closed") is True and len(points) >= 3:
+            stroke["closed"] = True
+        return _stroke_style(item, stroke)
     if kind in ("rect", "ellipse"):
-        coords = [_symbol_number(item.get(key)) for key in ("x", "y", "w", "h")]
+        coords = [_symbol_number(item.get(key), limit) for key in ("x", "y", "w", "h")]
         if any(value is None for value in coords):
             return None
         x, y, width, height = coords
-        if width < 1 or height < 1 or x + width > 40.01 or y + height > 40.01:
+        if width < 1 or height < 1 or x + width > limit + 0.01 or y + height > limit + 0.01:
             return None
-        return {"kind": kind, "x": x, "y": y, "w": width, "h": height}
+        return _stroke_style(item, {"kind": kind, "x": x, "y": y, "w": width, "h": height})
     if kind == "text":
-        x = _symbol_number(item.get("x"))
-        y = _symbol_number(item.get("y"))
+        x = _symbol_number(item.get("x"), limit)
+        y = _symbol_number(item.get("y"), limit)
         text = " ".join(str(item.get("text") or "").split())
         size = _symbol_number(item.get("size"))
         if x is None or y is None or not text or len(text) > 40:
@@ -147,11 +191,11 @@ def _clean_stroke(item) -> dict | None:
     return None
 
 
-def _clean_port(item, index: int) -> dict | None:
+def _clean_port(item, index: int, limit: float = 40.0) -> dict | None:
     if not isinstance(item, dict):
         return None
-    x = _symbol_number(item.get("x"))
-    y = _symbol_number(item.get("y"))
+    x = _symbol_number(item.get("x"), limit)
+    y = _symbol_number(item.get("y"), limit)
     direction = item.get("dir")
     if x is None or y is None or direction not in ("top", "right", "bottom", "left"):
         return None
@@ -166,23 +210,51 @@ def _clean_symbol(payload: dict) -> dict | None:
     ports = payload.get("ports")
     if not name or len(name) > SYMBOL_NAME_LIMIT:
         return None
-    if not isinstance(strokes, list) or not strokes or len(strokes) > SYMBOL_STROKE_LIMIT:
+    if not isinstance(strokes, list) or len(strokes) > SYMBOL_STROKE_LIMIT:
         return None
     if not isinstance(ports, list) or len(ports) > SYMBOL_PORT_LIMIT:
         return None
+    extent = _symbol_extent(payload.get("extent"))
+    if extent is None:
+        return None
+    image = _clean_image(payload.get("image"), extent)
+    if payload.get("image") not in (None, "") and image is None:
+        return None
+    if not strokes and image is None:
+        return None
     cleaned_strokes = []
     for item in strokes:
-        stroke = _clean_stroke(item)
+        stroke = _clean_stroke(item, extent)
         if stroke is None:
             return None
         cleaned_strokes.append(stroke)
     cleaned_ports = []
     for index, item in enumerate(ports, start=1):
-        port = _clean_port(item, index)
+        port = _clean_port(item, index, extent)
         if port is None:
             return None
         cleaned_ports.append(port)
-    return {"name": name, "strokes": cleaned_strokes, "ports": cleaned_ports}
+    cleaned = {"name": name, "extent": extent, "strokes": cleaned_strokes, "ports": cleaned_ports}
+    if image is not None:
+        cleaned["image"] = image
+    return cleaned
+
+
+def _clean_image(value, limit: float) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    href = value.get("href")
+    if not isinstance(href, str) or len(href) > 90_000:
+        return None
+    if not re.fullmatch(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", href):
+        return None
+    box = [_symbol_number(value.get(key), limit) for key in ("x", "y", "w", "h")]
+    if any(item is None for item in box):
+        return None
+    x, y, width, height = box
+    if width < 1 or height < 1 or x + width > limit + 0.01 or y + height > limit + 0.01:
+        return None
+    return {"href": href, "x": x, "y": y, "w": width, "h": height}
 
 
 def _symbol_path(symbol_id: str) -> Path | None:
@@ -665,7 +737,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        payload = self._read_json()
+        payload = self._read_json(220_000 if path == "/api/symbols" else 100_000)
         if payload is None:
             self._send_json({"error": "bad-json"}, 400)
             return
@@ -817,12 +889,12 @@ class Handler(SimpleHTTPRequestHandler):
                 return value
         return ""
 
-    def _read_json(self):
+    def _read_json(self, limit=100_000):
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             return None
-        if length < 0 or length > 100_000:
+        if length < 0 or length > limit:
             return None
         raw = self.rfile.read(length) if length else b""
         try:

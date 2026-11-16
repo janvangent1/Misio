@@ -39,6 +39,7 @@
           <option value="fr">Français</option>
         </select>
         <input id="file-input" type="file" accept="application/json,.json" hidden>
+        <input id="background-file" type="file" accept="image/*,.bmp,.jpg,.jpeg,.png,.gif,.webp,.tif,.tiff,.ico" hidden>
         <input id="visio-input" type="file" accept=".vsdx,application/vnd.ms-visio.drawing" hidden>
       </div>
     </div>
@@ -79,6 +80,7 @@
         <input id="lane-color" type="color" value="#e6eef6" data-ui-label="lane-color-custom" data-ui-title="lane-color-custom" aria-label="Custom lane color" title="Custom lane color">
       </div>
       <button id="legend" type="button" data-ui="legend" data-ui-title="legend-title" title="Add a legend of the symbols on this page">Legend</button>
+      <button id="background" type="button" data-ui="background" data-ui-title="background-title" title="Place a picture behind the diagram. Drag it, stretch a corner, and Rotate turns it.">Background</button>
       <button id="align-left" type="button" data-ui="align-left" data-ui-title="align-title" title="Align the left edges of the selected shapes">Align left</button>
       <button id="space-even" type="button" data-ui="space" data-ui-title="space-title" title="Space the selected shapes evenly">Space</button>
       <button id="snap" type="button" aria-pressed="true" data-ui="snap" data-ui-title="snap-title" title="Snap shapes and lines to the grid">Snap</button>
@@ -128,27 +130,42 @@
         <input id="symbol-name" type="text" maxlength="80" required autocomplete="off">
       </label>
       <div class="symbol-tools" role="toolbar" data-ui-label="symbol-tools" aria-label="Symbol tools">
+        <button id="symbol-select" type="button" aria-pressed="false" data-ui="symbol-select">Select</button>
         <button id="symbol-line" type="button" aria-pressed="true" data-ui="symbol-line">Line</button>
         <button id="symbol-rect" type="button" aria-pressed="false" data-ui="symbol-rect">Rectangle</button>
         <button id="symbol-ellipse" type="button" aria-pressed="false" data-ui="symbol-ellipse">Ellipse</button>
+        <button id="symbol-circle" type="button" aria-pressed="false" data-ui="symbol-circle">Circle</button>
+        <button id="symbol-polyline" type="button" aria-pressed="false" data-ui="symbol-polyline">Polyline</button>
+        <button id="symbol-dot" type="button" aria-pressed="false" data-ui="symbol-dot">Dot</button>
         <button id="symbol-text" type="button" aria-pressed="false" data-ui="symbol-label">Text</button>
-        <button id="symbol-point" type="button" aria-pressed="false" data-ui="symbol-point">Point</button>
+        <button id="symbol-point" type="button" aria-pressed="false" data-ui="symbol-point">Connector</button>
       </div>
       <div class="symbol-view">
-        <button id="symbol-zoom-out" type="button" data-ui="zoom-out" data-ui-title="symbol-zoom-out-title" title="Show more of the symbol">Zoom out</button>
+        <button id="symbol-zoom-out" type="button" data-ui="zoom-out" data-ui-title="symbol-zoom-out-title" title="Show more of the symbol, or make it larger">Zoom out</button>
         <span id="symbol-zoom">100%</span>
         <button id="symbol-zoom-in" type="button" data-ui="zoom-in" data-ui-title="symbol-zoom-in-title" title="Draw a detail larger">Zoom in</button>
-        <button id="symbol-snap" type="button" aria-pressed="true" data-ui="symbol-snap" data-ui-title="symbol-snap-title" title="Snap a line to another line, a rectangle, or an ellipse">Snap</button>
+        <button id="symbol-snap" type="button" aria-pressed="true" data-ui="symbol-snap" data-ui-title="symbol-snap-title" title="Snap to the grid or to another stroke">Snap</button>
+        <button id="symbol-fill" type="button" aria-pressed="false" data-ui="symbol-fill" data-ui-title="symbol-fill-title" title="Fill the selected shape, or the next one">Fill</button>
+        <button id="symbol-thick" type="button" aria-pressed="false" data-ui="symbol-thick" data-ui-title="symbol-thick-title" title="Draw the selected stroke thicker, or the next one">Thick</button>
+        <button id="symbol-undo" type="button" data-ui="undo" data-ui-title="undo-title" title="Undo (Ctrl+Z)" disabled>Undo</button>
+        <button id="symbol-redo" type="button" data-ui="redo" data-ui-title="redo-title" title="Redo (Ctrl+Y)" disabled>Redo</button>
+        <button id="symbol-image" type="button" data-ui="symbol-image" data-ui-title="symbol-image-title" title="Use a picture as the background">Image</button>
+        <button id="symbol-image-clear" type="button" data-ui="symbol-image-clear" hidden>Clear image</button>
+        <input id="symbol-image-file" type="file" accept="image/*,.bmp,.jpg,.jpeg,.png,.gif,.webp,.tif,.tiff,.ico" hidden>
+      </div>
+      <div id="symbol-text-row" class="symbol-text-row" hidden>
+        <input id="symbol-text-input" type="text" maxlength="40" autocomplete="off" spellcheck="false" data-ui-label="symbol-label" aria-label="Text">
+        <button id="symbol-text-smaller" type="button" data-ui-title="symbol-text-smaller" title="Smaller text">A−</button>
+        <button id="symbol-text-larger" type="button" data-ui-title="symbol-text-larger" title="Larger text">A+</button>
       </div>
       <svg id="symbol-pad" viewBox="0 0 40 40" role="img" data-ui-label="symbol-pad" aria-label="Symbol drawing"></svg>
-      <p class="hint" data-ui="symbol-hint">Draw the ink, then place a point where a wire should meet it. Drag a point to move it. Click a point to change the side the wire leaves. Shift-click removes a point or text. Text: click and type, then drag the words to move them. The wheel zooms in so a detail can be drawn larger, and the right mouse button moves the view. Snap pulls a line onto another line, a rectangle, or an ellipse.</p>
+      <p class="hint" data-ui="symbol-hint">Select moves a stroke. Shift-click or Delete removes it. Draw with line, rectangle, ellipse, circle, polyline, or dot. Fill and Thick set the next shape, and change the selected one. For text, click the pad, type, and press Enter. Connector is where a wire meets the symbol. Image places a picture behind the drawing. The wheel zooms in and out. Zooming out past the whole symbol makes the icon larger, up to four times the usual size. The right mouse button moves the view. Snap pulls onto the grid or onto another stroke.</p>
       <p id="symbol-note" class="report-note" role="status"></p>
       <div class="report-actions">
         <button id="symbol-cancel" type="button" data-ui="cancel">Cancel</button>
         <button type="submit" data-ui="symbol-save">Save symbol</button>
       </div>
     </form>
-    <input id="symbol-text-input" class="symbol-text-input" type="text" maxlength="40" hidden autocomplete="off" spellcheck="false" data-ui-label="symbol-label" aria-label="Text">
   </dialog>
   <div id="cookie-notice" class="cookie-notice" hidden role="dialog" aria-labelledby="cookie-text">
     <p id="cookie-text" data-ui="cookie-text">Misio uses one cookie to count return visits. The drawing stays in this browser either way.</p>

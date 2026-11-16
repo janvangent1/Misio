@@ -217,14 +217,32 @@ function connectorRecord(connector) {
   return record;
 }
 
+function sanitizeBackground(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const href = String(raw.href || "");
+  if (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(href) || href.length > 1200000) return null;
+  const x = Number(raw.x);
+  const y = Number(raw.y);
+  const w = Number(raw.w);
+  const h = Number(raw.h);
+  if (![x, y, w, h].every(Number.isFinite)) return null;
+  if (w < 20 || h < 20 || w > 8000 || h > 8000) return null;
+  const background = { href, x, y, w, h };
+  if (shapeAngle(raw)) background.rotation = shapeAngle(raw);
+  return background;
+}
+
 function serialize(doc = state.doc) {
-  return JSON.stringify({
+  const payload = {
     app: "Misio",
     title: "Misio",
     version: 1,
     shapes: doc.shapes.map(shapeRecord),
     connectors: doc.connectors.map(connectorRecord),
-  }, null, 2);
+  };
+  const background = sanitizeBackground(doc.background);
+  if (background) payload.background = background;
+  return JSON.stringify(payload, null, 2);
 }
 
 function getShape(id) {
@@ -290,8 +308,16 @@ function commitChange(before) {
 
 function applySnapshot(snapshot) {
   const data = JSON.parse(snapshot);
-  state.doc = { shapes: data.shapes.map(shapeRecord), connectors: data.connectors.map(connectorRecord) };
+  state.doc = {
+    shapes: data.shapes.map(shapeRecord),
+    connectors: data.connectors.map(connectorRecord),
+    background: sanitizeBackground(data.background),
+  };
   if (!state.selection) return;
+  if (state.selection.kind === "background") {
+    if (!state.doc.background) state.selection = null;
+    return;
+  }
   if (state.selection.kind === "shape") {
     const ids = selectedShapeIds();
     if (!ids.length) state.selection = null;
@@ -945,54 +971,99 @@ function isCustomType(type) {
   return /^custom-[0-9a-f]{16}$/.test(String(type || ""));
 }
 
-function symbolNumber(value) {
+function symbolNumber(value, limit = 40) {
   const number = Number(value);
-  if (!Number.isFinite(number) || number < 0 || number > 40) return null;
+  if (!Number.isFinite(number) || number < 0 || number > limit) return null;
   return Math.round(number * 100) / 100;
 }
 
-function sanitizeStroke(item) {
+function styledStroke(item, stroke) {
+  if (!stroke) return null;
+  if (Number(item.weight) === 2 && stroke.kind !== "text") stroke.weight = 2;
+  const canFill = stroke.kind === "rect" || stroke.kind === "ellipse" || (stroke.kind === "polyline" && stroke.closed);
+  if (item.fill === true && canFill) stroke.fill = true;
+  return stroke;
+}
+
+function sanitizeStroke(item, limit = 40) {
   if (!item || typeof item !== "object") return null;
   if (item.kind === "line") {
-    const coords = ["x1", "y1", "x2", "y2"].map((key) => symbolNumber(item[key]));
+    const coords = ["x1", "y1", "x2", "y2"].map((key) => symbolNumber(item[key], limit));
     if (coords.some((value) => value == null)) return null;
     const [x1, y1, x2, y2] = coords;
     if (Math.hypot(x2 - x1, y2 - y1) < 0.5) return null;
-    return { kind: "line", x1, y1, x2, y2 };
+    return styledStroke(item, { kind: "line", x1, y1, x2, y2 });
+  }
+  if (item.kind === "polyline") {
+    if (!Array.isArray(item.points) || item.points.length < 2 || item.points.length > 24) return null;
+    const points = [];
+    for (const point of item.points) {
+      const x = point && symbolNumber(point.x, limit);
+      const y = point && symbolNumber(point.y, limit);
+      if (x == null || y == null) return null;
+      points.push({ x, y });
+    }
+    let length = 0;
+    for (let index = 1; index < points.length; index += 1) {
+      length += Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y);
+    }
+    if (length < 0.5) return null;
+    const stroke = { kind: "polyline", points };
+    if (item.closed === true && points.length >= 3) stroke.closed = true;
+    return styledStroke(item, stroke);
   }
   if (item.kind === "text") {
-    const x = symbolNumber(item.x);
-    const y = symbolNumber(item.y);
+    const x = symbolNumber(item.x, limit);
+    const y = symbolNumber(item.y, limit);
     const text = String(item.text || "").trim().replace(/\s+/g, " ").slice(0, 40);
     const size = symbolNumber(item.size);
     if (x == null || y == null || !text) return null;
     return { kind: "text", x, y, text, size: Math.min(16, Math.max(4, size == null ? 7 : size)) };
   }
   if (item.kind !== "rect" && item.kind !== "ellipse") return null;
-  const coords = ["x", "y", "w", "h"].map((key) => symbolNumber(item[key]));
+  const coords = ["x", "y", "w", "h"].map((key) => symbolNumber(item[key], limit));
   if (coords.some((value) => value == null)) return null;
   const [x, y, w, h] = coords;
-  if (w < 1 || h < 1 || x + w > 40.01 || y + h > 40.01) return null;
-  return { kind: item.kind, x, y, w, h };
+  if (w < 1 || h < 1 || x + w > limit + 0.01 || y + h > limit + 0.01) return null;
+  return styledStroke(item, { kind: item.kind, x, y, w, h });
 }
 
 function sanitizeSymbol(raw) {
   if (!raw || typeof raw !== "object") return null;
   const name = String(raw.name || "").trim().replace(/\s+/g, " ").slice(0, 80);
-  if (!name || !Array.isArray(raw.strokes) || !raw.strokes.length || raw.strokes.length > 40) return null;
+  if (!name || !Array.isArray(raw.strokes) || raw.strokes.length > 40) return null;
   if (!Array.isArray(raw.ports) || raw.ports.length > 16) return null;
-  const strokes = raw.strokes.map(sanitizeStroke);
+  const extent = symbolExtentOf({ symbol: raw });
+  const strokes = raw.strokes.map((item) => sanitizeStroke(item, extent));
   if (strokes.some((stroke) => !stroke)) return null;
+  const image = raw.image ? sanitizeSymbolImage(raw.image, extent) : null;
+  if (raw.image && !image) return null;
+  if (!strokes.length && !image) return null;
   const dirs = ["top", "right", "bottom", "left"];
   const ports = [];
   for (let index = 0; index < raw.ports.length; index += 1) {
     const item = raw.ports[index];
-    const x = item && symbolNumber(item.x);
-    const y = item && symbolNumber(item.y);
+    const x = item && symbolNumber(item.x, extent);
+    const y = item && symbolNumber(item.y, extent);
     if (x == null || y == null || !dirs.includes(item.dir)) return null;
     ports.push({ id: `n${index + 1}`, x, y, dir: item.dir });
   }
-  return { name, strokes, ports };
+  const symbol = { name, extent, strokes, ports };
+  if (image) symbol.image = image;
+  return symbol;
+}
+
+function sanitizeSymbolImage(image, limit) {
+  if (!image || typeof image !== "object") return null;
+  const href = String(image.href || "");
+  if (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(href) || href.length > 90000) return null;
+  const x = symbolNumber(image.x, limit);
+  const y = symbolNumber(image.y, limit);
+  const w = symbolNumber(image.w, limit);
+  const h = symbolNumber(image.h, limit);
+  if (x == null || y == null || w == null || h == null) return null;
+  if (w < 1 || h < 1 || x + w > limit + 0.01 || y + h > limit + 0.01) return null;
+  return { href, x, y, w, h };
 }
 
 function customSymbol(shape) {
@@ -1011,29 +1082,62 @@ function customFrame(shape) {
   };
 }
 
+function symbolExtentOf(shape) {
+  const extent = Number(shape && shape.symbol && shape.symbol.extent);
+  if (!Number.isFinite(extent) || extent < 40) return 40;
+  return Math.min(160, Math.round(extent * 100) / 100);
+}
+
 function customIconPoint(shape, nx, ny) {
   const frame = customFrame(shape);
+  const extent = symbolExtentOf(shape);
   return {
-    x: frame.x + (Number(nx) / 40) * frame.size,
-    y: frame.y + (Number(ny) / 40) * frame.size,
+    x: frame.x + (Number(nx) / extent) * frame.size,
+    y: frame.y + (Number(ny) / extent) * frame.size,
   };
+}
+
+function drawSymbolImage(parent, shape) {
+  const image = shape.symbol && shape.symbol.image;
+  if (!image || !image.href) return;
+  const origin = customIconPoint(shape, image.x, image.y);
+  const far = customIconPoint(shape, image.x + image.w, image.y + image.h);
+  const node = el("image", {
+    x: origin.x,
+    y: origin.y,
+    width: Math.max(0.1, far.x - origin.x),
+    height: Math.max(0.1, far.y - origin.y),
+    preserveAspectRatio: "none",
+  }, parent);
+  node.setAttribute("href", image.href);
+  node.setAttributeNS("http://www.w3.org/1999/xlink", "href", image.href);
 }
 
 function drawCustomSymbol(parent, shape, paint) {
   const symbol = customSymbol(shape);
   if (!symbol) return;
-  const ink = {
-    fill: "none",
-    stroke: paint.stroke,
-    "stroke-width": paint.sw,
-    "stroke-linejoin": "round",
-    "stroke-linecap": "round",
-  };
+  if (!plainDraw) drawSymbolImage(parent, shape);
   for (const stroke of symbol.strokes) {
+    const ink = {
+      fill: stroke.fill ? paint.stroke : "none",
+      stroke: paint.stroke,
+      "stroke-width": paint.sw * (stroke.weight === 2 ? 2.2 : 1),
+      "stroke-linejoin": "round",
+      "stroke-linecap": "round",
+    };
     if (stroke.kind === "line") {
       const start = customIconPoint(shape, stroke.x1, stroke.y1);
       const end = customIconPoint(shape, stroke.x2, stroke.y2);
       el("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, ...ink }, parent);
+      continue;
+    }
+    if (stroke.kind === "polyline") {
+      const commands = (stroke.points || []).map((point, index) => {
+        const at = customIconPoint(shape, point.x, point.y);
+        return `${index === 0 ? "M" : "L"}${at.x} ${at.y}`;
+      });
+      if (stroke.closed) commands.push("Z");
+      if (commands.length) el("path", { d: commands.join(" "), ...ink }, parent);
       continue;
     }
     if (stroke.kind === "text") {
@@ -1045,7 +1149,7 @@ function drawCustomSymbol(parent, shape, paint) {
         "text-anchor": "middle",
         "dominant-baseline": "central",
         "font-family": "Segoe UI, Helvetica Neue, sans-serif",
-        "font-size": Math.max(1, ((Number(stroke.size) || 7) / 40) * frame.size),
+        "font-size": Math.max(1, ((Number(stroke.size) || 7) / symbolExtentOf(shape)) * frame.size),
         fill: paint.stroke,
       }, parent);
       node.textContent = stroke.text;
@@ -1411,32 +1515,61 @@ function portsVisible(shape) {
   return state.hover && state.hover.kind === "shape" && state.hover.id === shape.id;
 }
 
+function drawPageBackground(parent) {
+  const background = state.doc.background;
+  if (!background) return;
+  const local = contentShape(background);
+  const center = shapeCenter(background);
+  const target = local.turn
+    ? el("g", { transform: `rotate(${local.turn} ${center.x} ${center.y})` }, parent)
+    : parent;
+  const node = el("image", {
+    x: local.x,
+    y: local.y,
+    width: local.w,
+    height: local.h,
+    preserveAspectRatio: "none",
+  }, target);
+  node.setAttribute("href", background.href);
+  node.setAttributeNS("http://www.w3.org/1999/xlink", "href", background.href);
+}
+
 function drawChrome(parent) {
-  if (state.tool === "select" && state.selection && state.selection.kind === "shape" && selectedShapeIds().length === 1) {
-    const shape = getShape(state.selection.id);
-    if (shape && shape.type !== "legend") {
-      const corners = [
-        ["nw", shape.x, shape.y],
-        ["ne", shape.x + shape.w, shape.y],
-        ["se", shape.x + shape.w, shape.y + shape.h],
-        ["sw", shape.x, shape.y + shape.h],
-      ];
-      const size = 8 / state.view.scale;
-      for (const [name, x, y] of corners) {
-        el("rect", {
-          x: x - size / 2,
-          y: y - size / 2,
-          width: size,
-          height: size,
-          fill: "#fffcf7",
-          stroke: "#184e86",
-          "stroke-width": 1.5 / state.view.scale,
-          "data-handle": name,
-          role: "button",
-          "aria-label": ui("resize", { name: shape.text || labelFor(shape.type), corner: ui("corner-" + name) }),
-        }, parent);
-      }
-    }
+  const frame = selectedFrame();
+  if (!frame) return;
+  if (state.selection.kind === "background") {
+    el("rect", {
+      x: frame.x,
+      y: frame.y,
+      width: frame.w,
+      height: frame.h,
+      fill: "none",
+      stroke: "#184e86",
+      "stroke-width": 1.5 / state.view.scale,
+      "stroke-dasharray": `${5 / state.view.scale} ${4 / state.view.scale}`,
+    }, parent);
+  }
+  const corners = [
+    ["nw", frame.x, frame.y],
+    ["ne", frame.x + frame.w, frame.y],
+    ["se", frame.x + frame.w, frame.y + frame.h],
+    ["sw", frame.x, frame.y + frame.h],
+  ];
+  const size = 8 / state.view.scale;
+  const label = state.selection.kind === "background" ? ui("background") : (frame.text || labelFor(frame.type));
+  for (const [name, x, y] of corners) {
+    el("rect", {
+      x: x - size / 2,
+      y: y - size / 2,
+      width: size,
+      height: size,
+      fill: "#fffcf7",
+      stroke: "#184e86",
+      "stroke-width": 1.5 / state.view.scale,
+      "data-handle": name,
+      role: "button",
+      "aria-label": ui("resize", { name: label, corner: ui("corner-" + name) }),
+    }, parent);
   }
 }
 
@@ -1464,12 +1597,18 @@ function contentBounds() {
     if (!points) continue;
     for (const point of points) include(point.x, point.y);
   }
+  const background = state.doc.background;
+  if (background) {
+    include(background.x, background.y);
+    include(background.x + background.w, background.y + background.h);
+  }
   if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 320, h: 180 };
   const pad = 32;
   return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
 }
 
 function drawDiagram(parent, interactive) {
+  drawPageBackground(parent);
   for (const shape of state.doc.shapes) {
     if (shape.type !== "lane") continue;
     const group = el("g", { "data-shape-id": shape.id, role: "group", "aria-label": shape.text || shape.type }, parent);
@@ -1716,17 +1855,31 @@ function hitShapeBody(shape, point) {
   return point.x >= shape.x && point.x <= shape.x + shape.w && point.y >= shape.y && point.y <= shape.y + shape.h;
 }
 
-function hitHandle(point) {
-  if (state.tool !== "select" || !state.selection || state.selection.kind !== "shape") return null;
-  if (selectedShapeIds().length !== 1) return null;
+function selectedFrame() {
+  if (state.tool !== "select" || !state.selection) return null;
+  if (state.selection.kind === "background") return state.doc.background || null;
+  if (state.selection.kind !== "shape" || selectedShapeIds().length !== 1) return null;
   const shape = getShape(state.selection.id);
-  if (!shape) return null;
+  if (!shape || shape.type === "legend") return null;
+  return shape;
+}
+
+function hitBackground(point) {
+  const background = state.doc.background;
+  if (!background) return false;
+  return point.x >= background.x && point.x <= background.x + background.w
+    && point.y >= background.y && point.y <= background.y + background.h;
+}
+
+function hitHandle(point) {
+  const frame = selectedFrame();
+  if (!frame) return null;
   const reach = 8 / state.view.scale;
   const corners = [
-    ["nw", shape.x, shape.y],
-    ["ne", shape.x + shape.w, shape.y],
-    ["se", shape.x + shape.w, shape.y + shape.h],
-    ["sw", shape.x, shape.y + shape.h],
+    ["nw", frame.x, frame.y],
+    ["ne", frame.x + frame.w, frame.y],
+    ["se", frame.x + frame.w, frame.y + frame.h],
+    ["sw", frame.x, frame.y + frame.h],
   ];
   for (const [name, x, y] of corners) {
     if (Math.abs(point.x - x) <= reach && Math.abs(point.y - y) <= reach) return name;
@@ -1810,7 +1963,7 @@ function cursorFor(point) {
   if (handle === "nw" || handle === "se") return "nwse-resize";
   if (handle === "ne" || handle === "sw") return "nesw-resize";
   if (hitPort(point)) return "crosshair";
-  if (state.tool === "select" && hitShape(point)) return "move";
+  if (state.tool === "select" && (hitShape(point) || hitBackground(point))) return "move";
   if (state.tool === "connect" || state.tool === "bus") return "crosshair";
   return "default";
 }
@@ -1877,6 +2030,15 @@ function resizeShape(shape, corner, point) {
 function deleteSelection() {
   if (!state.selection) return;
   closeEditor(true);
+  if (state.selection.kind === "background") {
+    const before = serialize();
+    state.doc.background = null;
+    state.selection = null;
+    commitChange(before);
+    render();
+    setStatus(ui("background-removed"));
+    return;
+  }
   const before = serialize();
   if (state.selection.kind === "shape") {
     const ids = new Set(selectedShapeIds());
@@ -2349,6 +2511,14 @@ function setSnap(on, announce) {
 }
 
 function nudge(dx, dy) {
+  if (state.selection && state.selection.kind === "background" && state.doc.background) {
+    const before = serialize();
+    state.doc.background.x = maybeSnap(state.doc.background.x + dx);
+    state.doc.background.y = maybeSnap(state.doc.background.y + dy);
+    commitChange(before);
+    render();
+    return;
+  }
   const ids = new Set(selectedShapeIds());
   if (!ids.size) return;
   for (const id of [...ids]) {
@@ -2461,7 +2631,7 @@ function hideConfirm() {
 
 function clearDoc() {
   const before = serialize();
-  state.doc = { shapes: [], connectors: [] };
+  state.doc = { shapes: [], connectors: [], background: null };
   state.selection = null;
   closeEditor(false);
   commitChange(before);
@@ -2549,7 +2719,7 @@ function openText(text) {
   }
   const ids = new Set(shapes.map((shape) => shape.id));
   const connectors = data.connectors.map((connector) => sanitizeConnector(connector, ids)).filter(Boolean);
-  state.doc = { shapes, connectors };
+  state.doc = { shapes, connectors, background: sanitizeBackground(data.background) };
   state.selection = null;
   commitChange(before);
   state.savedSnapshot = serialize();
@@ -2610,6 +2780,28 @@ function shapeNearPoint(shapes, x, y) {
   return best;
 }
 
+function paintSymbolPhoto(context, shape, scale) {
+  const photo = shape.symbol && shape.symbol.image;
+  if (!photo || !photo.href) return Promise.resolve();
+  return new Promise((resolve) => {
+    const picture = new Image();
+    picture.onload = () => {
+      const origin = customIconPoint(shape, photo.x, photo.y);
+      const far = customIconPoint(shape, photo.x + photo.w, photo.y + photo.h);
+      context.drawImage(
+        picture,
+        origin.x * scale,
+        origin.y * scale,
+        Math.max(1, (far.x - origin.x) * scale),
+        Math.max(1, (far.y - origin.y) * scale),
+      );
+      resolve();
+    };
+    picture.onerror = () => resolve();
+    picture.src = photo.href;
+  });
+}
+
 function rasterShape(shape) {
   const width = Math.max(1, Math.ceil(shape.w));
   const height = Math.max(1, Math.ceil(shape.h));
@@ -2629,7 +2821,7 @@ function rasterShape(shape) {
   const url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml" }));
   return new Promise((resolve) => {
     const image = new Image();
-    image.onload = () => {
+    image.onload = async () => {
       const scale = 2;
       const canvas = document.createElement("canvas");
       canvas.width = width * scale;
@@ -2637,6 +2829,7 @@ function rasterShape(shape) {
       const context = canvas.getContext("2d");
       context.fillStyle = "#fffcf7";
       context.fillRect(0, 0, canvas.width, canvas.height);
+      await paintSymbolPhoto(context, local, scale);
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
       canvas.toBlob(async (blob) => {
@@ -2887,9 +3080,17 @@ function onPointerDown(event) {
   }
   const handle = hitHandle(world);
   if (handle) {
-    const shape = getShape(state.selection.id);
-    state.gesture = { type: "resize", id: shape.id, corner: handle, before: serialize(), origin: { x: shape.x, y: shape.y, w: shape.w, h: shape.h } };
-    shape.origin = state.gesture.origin;
+    const frame = selectedFrame();
+    const background = state.selection.kind === "background";
+    state.gesture = {
+      type: "resize",
+      id: background ? "" : frame.id,
+      background,
+      corner: handle,
+      before: serialize(),
+      origin: { x: frame.x, y: frame.y, w: frame.w, h: frame.h },
+    };
+    frame.origin = state.gesture.origin;
     wrap.setPointerCapture(event.pointerId);
     return;
   }
@@ -2956,6 +3157,22 @@ function onPointerDown(event) {
       render();
       return;
     }
+    if (hitBackground(world)) {
+      const background = state.doc.background;
+      state.selection = { kind: "background" };
+      state.gesture = {
+        type: "move",
+        background: true,
+        origins: { background: { x: background.x, y: background.y } },
+        start: { x: world.x, y: world.y },
+        pointer: { x: event.clientX, y: event.clientY },
+        pointerId: event.pointerId,
+        before: serialize(),
+        armed: false,
+      };
+      render();
+      return;
+    }
     if (modifierHeld(event)) {
       state.gesture = marqueeGesture(world, event, selectedShapeIds(), null);
       render();
@@ -3016,6 +3233,13 @@ function onPointerMove(event) {
     }
     const dx = world.x - gesture.start.x;
     const dy = world.y - gesture.start.y;
+    if (gesture.background) {
+      const origin = gesture.origins.background;
+      state.doc.background.x = maybeSnap(origin.x + dx);
+      state.doc.background.y = maybeSnap(origin.y + dy);
+      render();
+      return;
+    }
     for (const [id, origin] of Object.entries(gesture.origins)) {
       const shape = getShape(id);
       if (!shape) continue;
@@ -3026,7 +3250,7 @@ function onPointerMove(event) {
     return;
   }
   if (gesture.type === "resize") {
-    const shape = getShape(gesture.id);
+    const shape = gesture.background ? state.doc.background : getShape(gesture.id);
     if (!shape) return;
     shape.origin = gesture.origin;
     resizeShape(shape, gesture.corner, world);
@@ -3185,7 +3409,7 @@ function finishGesture() {
   if (!gesture) return;
   state.gesture = null;
   if (gesture.type === "move" || gesture.type === "resize") {
-    const shape = getShape(gesture.id);
+    const shape = gesture.background ? state.doc.background : getShape(gesture.id);
     if (shape) delete shape.origin;
     commitChange(gesture.before);
   } else if (gesture.type === "marquee") {
@@ -3443,26 +3667,35 @@ function duplicateSelection() {
   setStatus(count === 1 ? ui("duplicated-one") : ui("duplicated-many", { n: count }));
 }
 
+function turnFrame(shape, clockwise) {
+  const center = shapeCenter(shape);
+  const w = shape.h;
+  const h = shape.w;
+  shape.w = w;
+  shape.h = h;
+  shape.x = center.x - w / 2;
+  shape.y = center.y - h / 2;
+  const angle = (shapeAngle(shape) + (clockwise ? 90 : 270)) % 360;
+  if (angle) shape.rotation = angle;
+  else delete shape.rotation;
+}
+
 function rotateSelection(clockwise) {
+  if (state.selection && state.selection.kind === "background" && state.doc.background) {
+    const before = serialize();
+    turnFrame(state.doc.background, clockwise);
+    commitChange(before);
+    render();
+    setStatus(ui(clockwise ? "rotate-cw" : "rotate-ccw"));
+    return;
+  }
   const shapes = selectedShapeIds().map(getShape).filter((shape) => shape && shape.type !== "lane" && shape.type !== "legend");
   if (!shapes.length) {
     setStatus(ui("rotate-none"));
     return;
   }
   const before = serialize();
-  const step = clockwise ? 90 : 270;
-  for (const shape of shapes) {
-    const center = shapeCenter(shape);
-    const w = shape.h;
-    const h = shape.w;
-    shape.w = w;
-    shape.h = h;
-    shape.x = center.x - w / 2;
-    shape.y = center.y - h / 2;
-    const angle = (shapeAngle(shape) + step) % 360;
-    if (angle) shape.rotation = angle;
-    else delete shape.rotation;
-  }
+  for (const shape of shapes) turnFrame(shape, clockwise);
   commitChange(before);
   render();
   setStatus(ui(clockwise ? "rotate-cw" : "rotate-ccw"));
@@ -3670,6 +3903,10 @@ function isTypingTarget(target) {
 }
 
 function onKeyDown(event) {
+  if (document.getElementById("symbol-dialog").open) {
+    onSymbolKey(event);
+    return;
+  }
   if (event.key === "Control" || event.key === "Shift" || event.key === "Meta") heldKeys.add(event.key);
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
@@ -3875,6 +4112,101 @@ connectorColorInput.addEventListener("input", () => {
 connectorColorInput.addEventListener("change", finishConnectorColor);
 connectorColorInput.addEventListener("blur", finishConnectorColor);
 document.getElementById("legend").addEventListener("click", addLegend);
+
+function pageImageHref(canvas) {
+  const context = canvas.getContext("2d");
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  let transparent = false;
+  for (let index = 3; index < pixels.length; index += 32) {
+    if (pixels[index] < 250) {
+      transparent = true;
+      break;
+    }
+  }
+  if (transparent) {
+    const png = canvas.toDataURL("image/png");
+    if (png.length <= 1200000) return png;
+    context.globalCompositeOperation = "destination-over";
+    context.fillStyle = "#fffcf7";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  let quality = 0.82;
+  let href = canvas.toDataURL("image/jpeg", quality);
+  while (href.length > 1200000 && quality > 0.4) {
+    quality -= 0.12;
+    href = canvas.toDataURL("image/jpeg", quality);
+  }
+  return href.length <= 1200000 ? href : "";
+}
+
+function readPageImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const longest = Math.max(image.width, image.height);
+      const scale = longest > 1400 ? 1400 / longest : 1;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      const href = pageImageHref(canvas);
+      if (!href) {
+        reject(new Error("large"));
+        return;
+      }
+      resolve({ href, pixelW: canvas.width, pixelH: canvas.height });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("decode"));
+    };
+    image.src = url;
+  });
+}
+
+function placePageBackground(pixelW, pixelH) {
+  const aspect = pixelW / pixelH;
+  const long = 480;
+  const w = aspect >= 1 ? long : long * aspect;
+  const h = aspect >= 1 ? long / aspect : long;
+  const center = viewCenter();
+  return {
+    x: maybeSnap(center.x - w / 2),
+    y: maybeSnap(center.y - h / 2),
+    w: Math.max(40, Math.round(w)),
+    h: Math.max(40, Math.round(h)),
+  };
+}
+
+function choosePageBackground(file) {
+  readPageImage(file)
+    .then((image) => {
+      const before = serialize();
+      const current = state.doc.background;
+      const box = current
+        ? { x: current.x, y: current.y, w: current.w, h: current.h }
+        : placePageBackground(image.pixelW, image.pixelH);
+      const background = { href: image.href, ...box };
+      if (current && shapeAngle(current)) background.rotation = shapeAngle(current);
+      state.doc.background = background;
+      state.selection = { kind: "background" };
+      commitChange(before);
+      render();
+      setStatus(ui("background-added"));
+    })
+    .catch(() => setStatus(ui("background-failed")));
+}
+
+document.getElementById("background").addEventListener("click", () => {
+  document.getElementById("background-file").click();
+});
+document.getElementById("background-file").addEventListener("change", (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (file) choosePageBackground(file);
+});
 document.getElementById("fit").addEventListener("click", fitView);
 document.getElementById("zoom-in").addEventListener("click", () => {
   const rect = svg.getBoundingClientRect();
@@ -3886,7 +4218,7 @@ document.getElementById("zoom-out").addEventListener("click", () => {
 });
 document.getElementById("new-doc").addEventListener("click", () => {
   if (state.editor) closeEditor(true);
-  if (!state.doc.shapes.length && !state.doc.connectors.length) return;
+  if (!state.doc.shapes.length && !state.doc.connectors.length && !state.doc.background) return;
   confirmBar.hidden = false;
 });
 document.getElementById("confirm-yes").addEventListener("click", clearDoc);
@@ -3969,7 +4301,10 @@ wrap.addEventListener("pointerup", onPointerUp);
 wrap.addEventListener("pointercancel", (event) => {
   editOnUp = null;
   const gesture = state.gesture;
-  if (gesture && (gesture.type === "move" || gesture.type === "resize")) {
+  if (gesture && gesture.background && state.doc.background) {
+    const snapshot = JSON.parse(gesture.before);
+    state.doc.background = sanitizeBackground(snapshot.background);
+  } else if (gesture && (gesture.type === "move" || gesture.type === "resize")) {
     const shape = getShape(gesture.id);
     if (shape && gesture.type === "resize") {
       shape.x = gesture.origin.x;
@@ -4056,18 +4391,37 @@ let padPorts = [];
 let symbolDrag = null;
 let symbolTextEdit = null;
 let symbolSnap = true;
+let symbolExtent = 40;
 let symbolView = { x: 0, y: 0, size: 40 };
+let symbolFill = false;
+let symbolWeight = 1;
+let symbolChain = null;
+let symbolSelected = -1;
+let symbolUndo = [];
+let symbolRedo = [];
+let symbolTextSize = 7;
+let symbolImage = null;
 
 function customMasters() {
-  return customLibrary.map((symbol) => ({
-    type: `custom-${symbol.id}`,
-    category: "custom",
-    name: symbol.name,
-    w: 80,
-    h: 80,
-    text: "",
-    symbol: { name: symbol.name, strokes: symbol.strokes, ports: symbol.ports },
-  }));
+  return customLibrary.map((symbol) => {
+    const extent = symbol.extent || 40;
+    const placed = Math.round(extent * 2);
+    return {
+      type: `custom-${symbol.id}`,
+      category: "custom",
+      name: symbol.name,
+      w: placed,
+      h: placed,
+      text: "",
+      symbol: {
+        name: symbol.name,
+        extent,
+        strokes: symbol.strokes,
+        ports: symbol.ports,
+        ...(symbol.image ? { image: symbol.image } : {}),
+      },
+    };
+  });
 }
 
 function customMasterRow(master) {
@@ -4126,25 +4480,261 @@ function removeCustomSymbol(master) {
 function symbolNearestSide(x, y) {
   const sides = [
     ["top", y],
-    ["bottom", 40 - y],
+    ["bottom", symbolExtent - y],
     ["left", x],
-    ["right", 40 - x],
+    ["right", symbolExtent - x],
   ];
   sides.sort((left, right) => left[1] - right[1]);
   return sides[0][0];
 }
 
 function symbolStroke(kind, x1, y1, x2, y2) {
-  if (kind === "line") return sanitizeStroke({ kind, x1, y1, x2, y2 });
-  const x = Math.min(x1, x2);
-  const y = Math.min(y1, y2);
-  return sanitizeStroke({ kind, x, y, w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) });
+  if (kind === "line") return withSymbolStyle(sanitizeStroke({ kind, x1, y1, x2, y2 }, symbolExtent));
+  let x = Math.min(x1, x2);
+  let y = Math.min(y1, y2);
+  let w = Math.abs(x2 - x1);
+  let h = Math.abs(y2 - y1);
+  if (kind === "circle") {
+    const side = Math.min(symbolExtent, Math.max(w, h));
+    x = x2 < x1 ? x1 - side : x1;
+    y = y2 < y1 ? y1 - side : y1;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x + side > symbolExtent) x = symbolExtent - side;
+    if (y + side > symbolExtent) y = symbolExtent - side;
+    w = side;
+    h = side;
+    kind = "ellipse";
+  }
+  return withSymbolStyle(sanitizeStroke({ kind, x, y, w, h }, symbolExtent), { fill: symbolFill });
+}
+
+function withSymbolStyle(stroke, options = {}) {
+  if (!stroke || stroke.kind === "text") return stroke;
+  if (symbolWeight === 2) stroke.weight = 2;
+  if (options.fill && (stroke.kind === "rect" || stroke.kind === "ellipse")) stroke.fill = true;
+  return stroke;
+}
+
+function symbolDot(point) {
+  const size = 2.4;
+  const x = Math.min(symbolExtent - size, Math.max(0, point.x - size / 2));
+  const y = Math.min(symbolExtent - size, Math.max(0, point.y - size / 2));
+  return withSymbolStyle(sanitizeStroke({ kind: "ellipse", x, y, w: size, h: size, fill: true }, symbolExtent), { fill: true });
+}
+
+function symbolGridStep() {
+  if (symbolView.size <= 8) return 1;
+  if (symbolView.size <= 20) return 2;
+  return 10;
+}
+
+function symbolSnapshot() {
+  return JSON.stringify({ extent: symbolExtent, strokes: symbolStrokes, ports: padPorts, image: symbolImage });
+}
+
+function updateSymbolHistoryButtons() {
+  const undoButton = document.getElementById("symbol-undo");
+  const redoButton = document.getElementById("symbol-redo");
+  if (undoButton) undoButton.disabled = symbolUndo.length === 0;
+  if (redoButton) redoButton.disabled = symbolRedo.length === 0;
+}
+
+function pushSymbolHistory(before) {
+  if (!before || before === symbolSnapshot()) return;
+  symbolUndo.push(before);
+  if (symbolUndo.length > 50) symbolUndo.shift();
+  symbolRedo = [];
+  updateSymbolHistoryButtons();
+}
+
+function applySymbolSnapshot(snap) {
+  const data = JSON.parse(snap);
+  symbolStrokes = data.strokes;
+  padPorts = data.ports;
+  symbolExtent = data.extent || 40;
+  symbolImage = data.image || null;
+  symbolSelected = -1;
+  symbolChain = null;
+  symbolTextEdit = null;
+  const input = symbolTextInput();
+  if (input) input.value = "";
+  setSymbolView(symbolView.x, symbolView.y, Math.min(symbolView.size, symbolExtent));
+  updateSymbolHistoryButtons();
+}
+
+function undoSymbol() {
+  if (!symbolUndo.length) return;
+  const current = symbolSnapshot();
+  const previous = symbolUndo.pop();
+  symbolRedo.push(current);
+  applySymbolSnapshot(previous);
+}
+
+function redoSymbol() {
+  if (!symbolRedo.length) return;
+  const current = symbolSnapshot();
+  const next = symbolRedo.pop();
+  symbolUndo.push(current);
+  applySymbolSnapshot(next);
+}
+
+function onSymbolKey(event) {
+  const typing = event.target && (event.target.id === "symbol-name" || event.target.id === "symbol-text-input");
+  const key = event.key.toLowerCase();
+  if ((event.ctrlKey || event.metaKey) && key === "z" && !event.shiftKey) {
+    if (typing) return;
+    event.preventDefault();
+    undoSymbol();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && (key === "y" || (event.shiftKey && key === "z"))) {
+    if (typing) return;
+    event.preventDefault();
+    redoSymbol();
+    return;
+  }
+  if (typing) return;
+  if ((event.key === "Delete" || event.key === "Backspace") && symbolSelected >= 0) {
+    event.preventDefault();
+    deleteSelectedSymbolStroke();
+    return;
+  }
+  if (event.key === "Enter" && symbolChain) {
+    event.preventDefault();
+    finishSymbolChain();
+  }
+}
+
+function deleteSelectedSymbolStroke() {
+  if (symbolSelected < 0 || !symbolStrokes[symbolSelected]) return;
+  const before = symbolSnapshot();
+  symbolStrokes.splice(symbolSelected, 1);
+  symbolSelected = -1;
+  pushSymbolHistory(before);
+  renderSymbolPad();
+}
+
+function strokePoints(stroke) {
+  if (stroke.kind === "line") return [{ x: stroke.x1, y: stroke.y1 }, { x: stroke.x2, y: stroke.y2 }];
+  if (stroke.kind === "polyline") return stroke.points;
+  if (stroke.kind === "text") return [{ x: stroke.x, y: stroke.y }];
+  return [{ x: stroke.x, y: stroke.y }, { x: stroke.x + stroke.w, y: stroke.y + stroke.h }];
+}
+
+function roundSymbol(value) {
+  return Math.round(Math.min(symbolExtent, Math.max(0, value)) * 100) / 100;
+}
+
+function shiftStroke(stroke, dx, dy) {
+  if (stroke.kind === "line") {
+    stroke.x1 = roundSymbol(stroke.x1 + dx);
+    stroke.y1 = roundSymbol(stroke.y1 + dy);
+    stroke.x2 = roundSymbol(stroke.x2 + dx);
+    stroke.y2 = roundSymbol(stroke.y2 + dy);
+    return;
+  }
+  if (stroke.kind === "polyline") {
+    stroke.points.forEach((point) => {
+      point.x = roundSymbol(point.x + dx);
+      point.y = roundSymbol(point.y + dy);
+    });
+    return;
+  }
+  if (stroke.kind === "text") {
+    stroke.x = roundSymbol(stroke.x + dx);
+    stroke.y = roundSymbol(stroke.y + dy);
+    return;
+  }
+  stroke.x = roundSymbol(stroke.x + dx);
+  stroke.y = roundSymbol(stroke.y + dy);
+}
+
+function placeStroke(origin, dx, dy) {
+  const stroke = JSON.parse(JSON.stringify(origin));
+  const points = strokePoints(stroke);
+  let minX = symbolExtent;
+  let minY = symbolExtent;
+  let maxX = 0;
+  let maxY = 0;
+  for (const point of points) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  shiftStroke(
+    stroke,
+    Math.min(symbolExtent - maxX, Math.max(-minX, dx)),
+    Math.min(symbolExtent - maxY, Math.max(-minY, dy)),
+  );
+  return stroke;
+}
+
+function strokeDistance(stroke, point) {
+  if (stroke.kind === "text") {
+    const half = Math.max(stroke.text.length * stroke.size * 0.32, 1.2);
+    if (Math.abs(point.x - stroke.x) <= half && Math.abs(point.y - stroke.y) <= Math.max(stroke.size, 1.2)) {
+      return Math.hypot(point.x - stroke.x, point.y - stroke.y);
+    }
+    return Infinity;
+  }
+  if (stroke.kind === "line") {
+    return pointSegmentDistance(point.x, point.y, stroke.x1, stroke.y1, stroke.x2, stroke.y2);
+  }
+  if (stroke.kind === "polyline") {
+    const points = stroke.points || [];
+    let best = Infinity;
+    for (let index = 1; index < points.length; index += 1) {
+      best = Math.min(best, pointSegmentDistance(point.x, point.y, points[index - 1].x, points[index - 1].y, points[index].x, points[index].y));
+    }
+    if (stroke.closed && points.length > 2) {
+      const last = points[points.length - 1];
+      best = Math.min(best, pointSegmentDistance(point.x, point.y, last.x, last.y, points[0].x, points[0].y));
+    }
+    return best;
+  }
+  if (stroke.kind === "ellipse") {
+    const cx = stroke.x + stroke.w / 2;
+    const cy = stroke.y + stroke.h / 2;
+    const rx = stroke.w / 2;
+    const ry = stroke.h / 2;
+    if (stroke.fill && rx > 0 && ry > 0) {
+      const nx = (point.x - cx) / rx;
+      const ny = (point.y - cy) / ry;
+      if (nx * nx + ny * ny <= 1) return 0;
+    }
+    const onEllipse = nearestOnEllipse(point.x, point.y, cx, cy, rx, ry);
+    return Math.hypot(point.x - onEllipse.x, point.y - onEllipse.y);
+  }
+  if (stroke.fill && point.x >= stroke.x && point.x <= stroke.x + stroke.w && point.y >= stroke.y && point.y <= stroke.y + stroke.h) return 0;
+  const right = stroke.x + stroke.w;
+  const bottom = stroke.y + stroke.h;
+  return Math.min(
+    pointSegmentDistance(point.x, point.y, stroke.x, stroke.y, right, stroke.y),
+    pointSegmentDistance(point.x, point.y, right, stroke.y, right, bottom),
+    pointSegmentDistance(point.x, point.y, right, bottom, stroke.x, bottom),
+    pointSegmentDistance(point.x, point.y, stroke.x, bottom, stroke.x, stroke.y),
+  );
+}
+
+function pointSegmentDistance(px, py, x1, y1, x2, y2) {
+  const nearest = nearestOnSegment(px, py, x1, y1, x2, y2);
+  return Math.hypot(px - nearest.x, py - nearest.y);
+}
+
+function hitSymbolStroke(point) {
+  const reach = Math.max(symbolReach() * 1.25, 0.65);
+  for (let index = symbolStrokes.length - 1; index >= 0; index -= 1) {
+    if (strokeDistance(symbolStrokes[index], point) <= reach) return index;
+  }
+  return -1;
 }
 
 function symbolRoundPoint(point) {
   return {
-    x: Math.round(Math.min(40, Math.max(0, point.x)) * 100) / 100,
-    y: Math.round(Math.min(40, Math.max(0, point.y)) * 100) / 100,
+    x: Math.round(Math.min(symbolExtent, Math.max(0, point.x)) * 100) / 100,
+    y: Math.round(Math.min(symbolExtent, Math.max(0, point.y)) * 100) / 100,
   };
 }
 
@@ -4190,9 +4780,24 @@ function snapSymbolPoint(point, origin, ignorePort) {
       best = { x, y };
     }
   };
+  const step = symbolGridStep();
+  const snapGrid = (value) => Math.min(symbolExtent, Math.max(0, Math.round(value / step) * step));
+  const gridX = snapGrid(point.x);
+  const gridY = snapGrid(point.y);
+  if (Math.abs(gridX - point.x) <= reach) consider(gridX, point.y);
+  if (Math.abs(gridY - point.y) <= reach) consider(point.x, gridY);
   for (const [index, stroke] of symbolStrokes.entries()) {
     if (stroke.kind === "text") {
       if (!(symbolDrag && symbolDrag.kind === "text" && symbolDrag.index === index)) consider(stroke.x, stroke.y);
+      continue;
+    }
+    if (stroke.kind === "polyline") {
+      const points = stroke.points || [];
+      points.forEach((corner) => consider(corner.x, corner.y));
+      for (let place = 1; place < points.length; place += 1) {
+        const onLine = nearestOnSegment(point.x, point.y, points[place - 1].x, points[place - 1].y, points[place].x, points[place].y);
+        consider(onLine.x, onLine.y);
+      }
       continue;
     }
     if (stroke.kind === "line") {
@@ -4241,14 +4846,20 @@ function snapSymbolPoint(point, origin, ignorePort) {
   return symbolRoundPoint(best || point);
 }
 
-function symbolRawPoint(event) {
+function symbolViewPoint(event) {
   const pad = document.getElementById("symbol-pad");
   const rect = pad.getBoundingClientRect();
-  const x = symbolView.x + (rect.width ? ((event.clientX - rect.left) / rect.width) * symbolView.size : 0);
-  const y = symbolView.y + (rect.height ? ((event.clientY - rect.top) / rect.height) * symbolView.size : 0);
   return {
-    x: Math.min(40, Math.max(0, x)),
-    y: Math.min(40, Math.max(0, y)),
+    x: symbolView.x + (rect.width ? ((event.clientX - rect.left) / rect.width) * symbolView.size : 0),
+    y: symbolView.y + (rect.height ? ((event.clientY - rect.top) / rect.height) * symbolView.size : 0),
+  };
+}
+
+function symbolRawPoint(event) {
+  const point = symbolViewPoint(event);
+  return {
+    x: Math.min(symbolExtent, Math.max(0, point.x)),
+    y: Math.min(symbolExtent, Math.max(0, point.y)),
   };
 }
 
@@ -4262,21 +4873,65 @@ function symbolPadPoint(event) {
 }
 
 function setSymbolView(x, y, size) {
-  const next = Math.min(40, Math.max(4, size));
+  const next = Math.min(symbolExtent, Math.max(4, size));
   symbolView = {
-    x: Math.min(40 - next, Math.max(0, x)),
-    y: Math.min(40 - next, Math.max(0, y)),
+    x: Math.min(symbolExtent - next, Math.max(0, x)),
+    y: Math.min(symbolExtent - next, Math.max(0, y)),
     size: next,
   };
   const pad = document.getElementById("symbol-pad");
   pad.setAttribute("viewBox", `${symbolView.x} ${symbolView.y} ${symbolView.size} ${symbolView.size}`);
   const label = document.getElementById("symbol-zoom");
-  if (label) label.textContent = `${Math.round((40 / next) * 100)}%`;
+  if (label) {
+    const sizePercent = (symbolExtent / 40) * 100;
+    const detailPercent = (symbolExtent / next) * 100;
+    label.textContent = `${Math.round(Math.max(sizePercent, detailPercent))}%`;
+  }
   renderSymbolPad();
 }
 
+function growSymbol() {
+  const next = Math.min(160, Math.round(symbolExtent * 1.25 * 100) / 100);
+  if (next <= symbolExtent + 0.01) return;
+  const before = symbolSnapshot();
+  const shift = (next - symbolExtent) / 2;
+  symbolExtent = next;
+  symbolStrokes = symbolStrokes.map((stroke) => placeStroke(stroke, shift, shift));
+  padPorts.forEach((port) => {
+    port.x = roundSymbol(port.x + shift);
+    port.y = roundSymbol(port.y + shift);
+  });
+  if (symbolImage) {
+    symbolImage = {
+      ...symbolImage,
+      x: roundSymbol(symbolImage.x + shift),
+      y: roundSymbol(symbolImage.y + shift),
+    };
+  }
+  if (symbolTextEdit) {
+    symbolTextEdit.x = roundSymbol(symbolTextEdit.x + shift);
+    symbolTextEdit.y = roundSymbol(symbolTextEdit.y + shift);
+  }
+  if (symbolChain) {
+    symbolChain.points.forEach((point) => {
+      point.x = roundSymbol(point.x + shift);
+      point.y = roundSymbol(point.y + shift);
+    });
+    if (symbolChain.hover) {
+      symbolChain.hover.x = roundSymbol(symbolChain.hover.x + shift);
+      symbolChain.hover.y = roundSymbol(symbolChain.hover.y + shift);
+    }
+  }
+  pushSymbolHistory(before);
+  setSymbolView(0, 0, next);
+}
+
 function zoomSymbol(factor, anchor) {
-  const next = Math.min(40, Math.max(4, symbolView.size / factor));
+  if (factor < 1 && symbolView.size >= symbolExtent - 0.25) {
+    growSymbol();
+    return;
+  }
+  const next = Math.min(symbolExtent, Math.max(4, symbolView.size / factor));
   const ax = anchor ? anchor.x : symbolView.x + symbolView.size / 2;
   const ay = anchor ? anchor.y : symbolView.y + symbolView.size / 2;
   const rx = (ax - symbolView.x) / symbolView.size;
@@ -4288,24 +4943,61 @@ function renderSymbolPad() {
   const pad = document.getElementById("symbol-pad");
   const unit = symbolView.size / 40;
   pad.replaceChildren();
-  el("rect", { x: 0.3, y: 0.3, width: 39.4, height: 39.4, fill: "#fffcf7", stroke: "#e2dcd2", "stroke-width": 0.25 * unit }, pad);
-  const step = symbolView.size <= 8 ? 1 : symbolView.size <= 20 ? 2 : 10;
-  for (let mark = step; mark < 40; mark += step) {
+  el("rect", {
+    x: 0.3, y: 0.3, width: symbolExtent - 0.6, height: symbolExtent - 0.6,
+    fill: "#fffcf7", stroke: "#c8bfb4", "stroke-width": 0.35 * unit,
+  }, pad);
+  const step = symbolGridStep();
+  for (let mark = step; mark < symbolExtent; mark += step) {
     const major = mark % 10 === 0;
     const stroke = major ? "#e2dcd2" : "#f3efe8";
     const width = (major ? 0.2 : 0.12) * unit;
-    el("line", { x1: mark, y1: 0, x2: mark, y2: 40, stroke, "stroke-width": width }, pad);
-    el("line", { x1: 0, y1: mark, x2: 40, y2: mark, stroke, "stroke-width": width }, pad);
+    el("line", { x1: mark, y1: 0, x2: mark, y2: symbolExtent, stroke, "stroke-width": width }, pad);
+    el("line", { x1: 0, y1: mark, x2: symbolExtent, y2: mark, stroke, "stroke-width": width }, pad);
   }
-  const strokes = symbolDrag && symbolDrag.preview ? symbolStrokes.concat(symbolDrag.preview) : symbolStrokes;
+  const strokes = symbolStrokes.slice();
+  if (symbolDrag && symbolDrag.preview) strokes.push(symbolDrag.preview);
+  if (symbolChain && symbolChain.points.length >= 2) {
+    const points = symbolChain.points.slice();
+    if (symbolChain.hover) points.push(symbolChain.hover);
+    strokes.push({ kind: "polyline", points, weight: symbolWeight === 2 ? 2 : undefined });
+  }
+  const draft = symbolTextEdit && symbolTextInput() ? symbolTextInput().value.trim() : "";
+  if (symbolTextEdit && draft) {
+    strokes.push({ kind: "text", x: symbolTextEdit.x, y: symbolTextEdit.y, text: draft, size: symbolTextEdit.size });
+  }
   drawCustomSymbol(pad, {
     x: 0,
     y: 0,
-    w: 40,
-    h: 40,
+    w: symbolExtent,
+    h: symbolExtent,
     text: "",
-    symbol: { name: "Symbol", strokes, ports: [] },
+    symbol: { name: "Symbol", extent: symbolExtent, strokes, ports: [], image: symbolImage },
   }, { stroke: "#1c1915", sw: 0.55 * unit, fill: "none" });
+  if (symbolChain) {
+    for (const point of symbolChain.points) {
+      el("circle", { cx: point.x, cy: point.y, r: 0.7 * unit, fill: "#184e86" }, pad);
+    }
+  }
+  if (symbolTextEdit && !draft) {
+    const mark = 1.1 * unit;
+    el("line", {
+      x1: symbolTextEdit.x - mark, y1: symbolTextEdit.y, x2: symbolTextEdit.x + mark, y2: symbolTextEdit.y,
+      stroke: "#184e86", "stroke-width": 0.35 * unit,
+    }, pad);
+    el("line", {
+      x1: symbolTextEdit.x, y1: symbolTextEdit.y - mark, x2: symbolTextEdit.x, y2: symbolTextEdit.y + mark,
+      stroke: "#184e86", "stroke-width": 0.35 * unit,
+    }, pad);
+  }
+  if (symbolSelected >= 0 && symbolStrokes[symbolSelected]) {
+    const chosen = { ...symbolStrokes[symbolSelected] };
+    delete chosen.fill;
+    drawCustomSymbol(pad, {
+      x: 0, y: 0, w: symbolExtent, h: symbolExtent, text: "",
+      symbol: { name: "Symbol", extent: symbolExtent, strokes: [chosen], ports: [] },
+    }, { stroke: "#184e86", sw: 0.7 * unit, fill: "none" });
+  }
   for (const port of padPorts) {
     el("circle", {
       cx: port.x,
@@ -4326,7 +5018,8 @@ function renderSymbolPad() {
       "stroke-linecap": "round",
     }, pad);
   }
-  positionSymbolText();
+  syncSymbolStyleButtons();
+  syncSymbolImageButton();
 }
 
 function symbolTextInput() {
@@ -4334,58 +5027,150 @@ function symbolTextInput() {
 }
 
 function closeSymbolText() {
+  const hadDraft = symbolTextEdit;
   symbolTextEdit = null;
   const input = symbolTextInput();
-  if (!input) return;
-  input.hidden = true;
-  input.value = "";
-}
-
-function positionSymbolText() {
-  const input = symbolTextInput();
-  if (!input || input.hidden || !symbolTextEdit) return;
-  const pad = document.getElementById("symbol-pad");
-  const dialog = document.getElementById("symbol-dialog");
-  const padRect = pad.getBoundingClientRect();
-  const dialogRect = dialog.getBoundingClientRect();
-  const px = ((symbolTextEdit.x - symbolView.x) / symbolView.size) * padRect.width;
-  const py = ((symbolTextEdit.y - symbolView.y) / symbolView.size) * padRect.height;
-  input.style.left = `${padRect.left - dialogRect.left + px}px`;
-  input.style.top = `${padRect.top - dialogRect.top + py}px`;
+  const row = document.getElementById("symbol-text-row");
+  if (input) input.value = "";
+  if (row && symbolTool !== "text") row.hidden = true;
+  if (hadDraft) renderSymbolPad();
 }
 
 function openSymbolText(point, index) {
   const input = symbolTextInput();
+  const row = document.getElementById("symbol-text-row");
   const existing = index >= 0 ? symbolStrokes[index] : null;
   symbolTextEdit = {
     index,
     x: point.x,
     y: point.y,
-    size: existing && existing.size ? existing.size : 7,
+    size: existing && existing.size ? existing.size : symbolTextSize,
   };
-  input.hidden = false;
-  input.value = existing ? existing.text : "";
-  positionSymbolText();
-  input.focus();
-  input.select();
+  if (row) row.hidden = false;
+  input.value = existing ? existing.text : input.value;
+  const placeCaret = () => {
+    if (!symbolTextEdit || symbolTextEdit.index !== index) return;
+    input.focus();
+    if (existing) input.select();
+  };
+  placeCaret();
+  setTimeout(placeCaret, 0);
+  renderSymbolPad();
 }
 
 function commitSymbolText() {
   const input = symbolTextInput();
   const edit = symbolTextEdit;
-  if (!input || input.hidden || !edit) return;
+  if (!input || !edit) return;
   const text = input.value.trim().replace(/\s+/g, " ").slice(0, 40);
-  closeSymbolText();
+  symbolTextEdit = null;
+  input.value = "";
   if (!text) {
-    if (edit.index >= 0) symbolStrokes.splice(edit.index, 1);
+    if (edit.index >= 0) {
+      const before = symbolSnapshot();
+      symbolStrokes.splice(edit.index, 1);
+      if (symbolSelected === edit.index) symbolSelected = -1;
+      pushSymbolHistory(before);
+    }
     renderSymbolPad();
     return;
   }
-  const stroke = sanitizeStroke({ kind: "text", x: edit.x, y: edit.y, text, size: edit.size });
-  if (!stroke) return;
+  const stroke = sanitizeStroke({ kind: "text", x: edit.x, y: edit.y, text, size: edit.size }, symbolExtent);
+  if (!stroke) {
+    renderSymbolPad();
+    return;
+  }
+  const before = symbolSnapshot();
   if (edit.index >= 0) symbolStrokes[edit.index] = stroke;
-  else if (symbolStrokes.length < 40) symbolStrokes.push(stroke);
+  else if (symbolStrokes.length < 40) {
+    symbolStrokes.push(stroke);
+    symbolSelected = symbolStrokes.length - 1;
+  }
+  pushSymbolHistory(before);
   renderSymbolPad();
+}
+
+function changeSymbolTextSize(delta) {
+  const next = Math.min(16, Math.max(4, (symbolTextEdit ? symbolTextEdit.size : symbolTextSize) + delta));
+  symbolTextSize = next;
+  if (symbolTextEdit) {
+    symbolTextEdit.size = next;
+    renderSymbolPad();
+    return;
+  }
+  const selected = symbolStrokes[symbolSelected];
+  if (selected && selected.kind === "text") {
+    const before = symbolSnapshot();
+    selected.size = next;
+    pushSymbolHistory(before);
+    renderSymbolPad();
+  }
+}
+
+function finishSymbolChain() {
+  const chain = symbolChain;
+  symbolChain = null;
+  if (!chain || chain.points.length < 2 || symbolStrokes.length >= 40) {
+    renderSymbolPad();
+    return;
+  }
+  const stroke = sanitizeStroke({
+    kind: "polyline",
+    points: chain.points,
+    closed: chain.closed === true,
+    fill: chain.closed === true && symbolFill,
+    weight: symbolWeight,
+  }, symbolExtent);
+  if (!stroke) {
+    renderSymbolPad();
+    return;
+  }
+  symbolStrokes.push(stroke);
+  symbolSelected = symbolStrokes.length - 1;
+  pushSymbolHistory(chain.before);
+  renderSymbolPad();
+}
+
+function syncSymbolStyleButtons() {
+  const stroke = symbolSelected >= 0 ? symbolStrokes[symbolSelected] : null;
+  const canFill = stroke && (stroke.kind === "rect" || stroke.kind === "ellipse" || (stroke.kind === "polyline" && stroke.closed));
+  const fill = canFill ? Boolean(stroke.fill) : symbolFill;
+  const thick = stroke && stroke.kind !== "text" ? stroke.weight === 2 : symbolWeight === 2;
+  const fillButton = document.getElementById("symbol-fill");
+  const thickButton = document.getElementById("symbol-thick");
+  if (fillButton) fillButton.setAttribute("aria-pressed", fill ? "true" : "false");
+  if (thickButton) thickButton.setAttribute("aria-pressed", thick ? "true" : "false");
+}
+
+function toggleSymbolFill() {
+  const stroke = symbolSelected >= 0 ? symbolStrokes[symbolSelected] : null;
+  const canFill = stroke && (stroke.kind === "rect" || stroke.kind === "ellipse" || (stroke.kind === "polyline" && stroke.closed));
+  if (canFill) {
+    const before = symbolSnapshot();
+    if (stroke.fill) delete stroke.fill;
+    else stroke.fill = true;
+    symbolFill = Boolean(stroke.fill);
+    pushSymbolHistory(before);
+    renderSymbolPad();
+    return;
+  }
+  symbolFill = !symbolFill;
+  syncSymbolStyleButtons();
+}
+
+function toggleSymbolThick() {
+  const stroke = symbolSelected >= 0 ? symbolStrokes[symbolSelected] : null;
+  if (stroke && stroke.kind !== "text") {
+    const before = symbolSnapshot();
+    if (stroke.weight === 2) delete stroke.weight;
+    else stroke.weight = 2;
+    symbolWeight = stroke.weight === 2 ? 2 : 1;
+    pushSymbolHistory(before);
+    renderSymbolPad();
+    return;
+  }
+  symbolWeight = symbolWeight === 2 ? 1 : 2;
+  syncSymbolStyleButtons();
 }
 
 function hitSymbolText(point) {
@@ -4401,8 +5186,11 @@ function hitSymbolText(point) {
 
 function setSymbolTool(tool) {
   commitSymbolText();
+  if (symbolChain) finishSymbolChain();
   symbolTool = tool;
-  for (const name of ["line", "rect", "ellipse", "text", "point"]) {
+  const row = document.getElementById("symbol-text-row");
+  if (row) row.hidden = tool !== "text";
+  for (const name of ["select", "line", "rect", "ellipse", "circle", "polyline", "dot", "text", "point"]) {
     document.getElementById(`symbol-${name}`).setAttribute("aria-pressed", name === tool ? "true" : "false");
   }
 }
@@ -4411,9 +5199,27 @@ function openSymbolEditor() {
   symbolStrokes = [];
   padPorts = [];
   symbolDrag = null;
-  closeSymbolText();
+  symbolChain = null;
+  symbolSelected = -1;
+  symbolTextEdit = null;
+  symbolUndo = [];
+  symbolRedo = [];
+  symbolFill = false;
+  symbolWeight = 1;
+  symbolTextSize = 7;
+  symbolExtent = 40;
+  symbolImage = null;
   symbolSnap = true;
+  const file = document.getElementById("symbol-image-file");
+  if (file) file.value = "";
+  const input = symbolTextInput();
+  if (input) input.value = "";
+  const row = document.getElementById("symbol-text-row");
+  if (row) row.hidden = true;
   document.getElementById("symbol-snap").setAttribute("aria-pressed", "true");
+  document.getElementById("symbol-fill").setAttribute("aria-pressed", "false");
+  document.getElementById("symbol-thick").setAttribute("aria-pressed", "false");
+  updateSymbolHistoryButtons();
   setSymbolTool("line");
   document.getElementById("symbol-name").value = "";
   document.getElementById("symbol-note").textContent = "";
@@ -4450,17 +5256,78 @@ function onSymbolPointerDown(event) {
   if (event.button !== 0) return;
   const raw = symbolRawPoint(event);
   const point = symbolPadPoint(event);
+  if (symbolTool === "select") {
+    const index = hitSymbolStroke(raw);
+    if (index >= 0 && event.shiftKey) {
+      symbolSelected = index;
+      deleteSelectedSymbolStroke();
+      return;
+    }
+    symbolSelected = index;
+    if (index >= 0) {
+      symbolDrag = {
+        kind: "move",
+        index,
+        rawX: raw.x,
+        rawY: raw.y,
+        before: symbolSnapshot(),
+        origin: JSON.parse(JSON.stringify(symbolStrokes[index])),
+      };
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // The stroke still moves while the pointer stays over the pad.
+      }
+    }
+    renderSymbolPad();
+    return;
+  }
+  if (symbolTool === "polyline") {
+    if (!symbolChain && symbolStrokes.length >= 40) return;
+    if (!symbolChain) {
+      symbolChain = { points: [point], before: symbolSnapshot(), closed: false };
+    } else {
+      const first = symbolChain.points[0];
+      if (symbolChain.points.length >= 3 && Math.hypot(point.x - first.x, point.y - first.y) <= Math.max(symbolReach(), 0.8)) {
+        symbolChain.closed = true;
+        finishSymbolChain();
+        return;
+      }
+      const last = symbolChain.points[symbolChain.points.length - 1];
+      if (Math.hypot(point.x - last.x, point.y - last.y) >= 0.5) symbolChain.points.push(point);
+      if (event.detail >= 2) {
+        finishSymbolChain();
+        return;
+      }
+    }
+    renderSymbolPad();
+    return;
+  }
+  if (symbolTool === "dot") {
+    if (symbolStrokes.length >= 40) return;
+    const before = symbolSnapshot();
+    const stroke = symbolDot(point);
+    if (!stroke) return;
+    symbolStrokes.push(stroke);
+    symbolSelected = symbolStrokes.length - 1;
+    pushSymbolHistory(before);
+    renderSymbolPad();
+    return;
+  }
   if (symbolTool === "point") {
     const index = hitSymbolPort(raw);
     if (index >= 0 && event.shiftKey) {
+      const before = symbolSnapshot();
       padPorts.splice(index, 1);
       padPorts.forEach((port, place) => { port.id = `n${place + 1}`; });
+      pushSymbolHistory(before);
       renderSymbolPad();
       return;
     }
+    const before = symbolSnapshot();
     if (index >= 0) {
       const port = padPorts[index];
-      symbolDrag = { kind: "port", index, moved: false, x: port.x, y: port.y, rawX: raw.x, rawY: raw.y };
+      symbolDrag = { kind: "port", index, moved: false, x: port.x, y: port.y, rawX: raw.x, rawY: raw.y, before };
     } else if (padPorts.length < 16) {
       padPorts.push({
         id: `n${padPorts.length + 1}`,
@@ -4468,7 +5335,7 @@ function onSymbolPointerDown(event) {
         y: point.y,
         dir: symbolNearestSide(point.x, point.y),
       });
-      symbolDrag = { kind: "port", index: padPorts.length - 1, moved: true, x: point.x, y: point.y };
+      symbolDrag = { kind: "port", index: padPorts.length - 1, moved: true, x: point.x, y: point.y, before };
     }
     if (symbolDrag) {
       try {
@@ -4481,15 +5348,29 @@ function onSymbolPointerDown(event) {
     return;
   }
   if (symbolTool === "text") {
+    event.preventDefault();
     const index = hitSymbolText(raw);
     if (index >= 0 && event.shiftKey) {
+      const before = symbolSnapshot();
       symbolStrokes.splice(index, 1);
+      if (symbolSelected === index) symbolSelected = -1;
+      symbolTextEdit = null;
+      pushSymbolHistory(before);
       renderSymbolPad();
       return;
     }
     if (index >= 0) {
+      if (symbolTextEdit && symbolTextEdit.index !== index) commitSymbolText();
       const stroke = symbolStrokes[index];
-      symbolDrag = { kind: "text", index, moved: false, x: stroke.x, y: stroke.y, rawX: raw.x, rawY: raw.y };
+      if (!stroke) return;
+      symbolDrag = {
+        kind: "text",
+        index,
+        moved: false,
+        rawX: raw.x,
+        rawY: raw.y,
+        before: symbolSnapshot(),
+      };
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
       } catch (error) {
@@ -4497,11 +5378,20 @@ function onSymbolPointerDown(event) {
       }
       return;
     }
+    if (symbolTextEdit && symbolTextEdit.index === -1) {
+      symbolTextEdit.x = point.x;
+      symbolTextEdit.y = point.y;
+      symbolTextInput().focus();
+      renderSymbolPad();
+      return;
+    }
+    commitSymbolText();
     if (symbolStrokes.length < 40) openSymbolText(point, -1);
     return;
   }
+  if (symbolTool !== "line" && symbolTool !== "rect" && symbolTool !== "ellipse" && symbolTool !== "circle") return;
   if (symbolStrokes.length >= 40) return;
-  symbolDrag = { kind: symbolTool, x: point.x, y: point.y, point };
+  symbolDrag = { kind: symbolTool, x: point.x, y: point.y, point, before: symbolSnapshot() };
   try {
     event.currentTarget.setPointerCapture(event.pointerId);
   } catch (error) {
@@ -4510,6 +5400,11 @@ function onSymbolPointerDown(event) {
 }
 
 function onSymbolPointerMove(event) {
+  if (symbolChain && !symbolDrag) {
+    symbolChain.hover = symbolPadPoint(event);
+    renderSymbolPad();
+    return;
+  }
   if (!symbolDrag) return;
   if (symbolDrag.kind === "pan") {
     const pad = document.getElementById("symbol-pad");
@@ -4529,6 +5424,12 @@ function onSymbolPointerMove(event) {
     port.x = point.x;
     port.y = point.y;
     port.dir = symbolNearestSide(point.x, point.y);
+    renderSymbolPad();
+    return;
+  }
+  if (symbolDrag.kind === "move") {
+    const rawNow = symbolRawPoint(event);
+    symbolStrokes[symbolDrag.index] = placeStroke(symbolDrag.origin, rawNow.x - symbolDrag.rawX, rawNow.y - symbolDrag.rawY);
     renderSymbolPad();
     return;
   }
@@ -4559,25 +5460,39 @@ function onSymbolPointerUp() {
       const dirs = ["top", "right", "bottom", "left"];
       port.dir = dirs[(dirs.indexOf(port.dir) + 1) % dirs.length];
     }
+    pushSymbolHistory(drag.before);
+    renderSymbolPad();
+    return;
+  }
+  if (drag.kind === "move") {
+    pushSymbolHistory(drag.before);
     renderSymbolPad();
     return;
   }
   if (drag.kind === "text") {
     const stroke = symbolStrokes[drag.index];
     if (stroke && !drag.moved) openSymbolText({ x: stroke.x, y: stroke.y }, drag.index);
-    else renderSymbolPad();
+    else {
+      pushSymbolHistory(drag.before);
+      renderSymbolPad();
+    }
     return;
   }
-  if (drag.preview && symbolStrokes.length < 40) symbolStrokes.push(drag.preview);
+  if (drag.preview && symbolStrokes.length < 40) {
+    symbolStrokes.push(drag.preview);
+    symbolSelected = symbolStrokes.length - 1;
+    pushSymbolHistory(drag.before);
+  }
   renderSymbolPad();
 }
 
 function saveCustomSymbol(event) {
   event.preventDefault();
+  if (symbolChain) finishSymbolChain();
   commitSymbolText();
   const note = document.getElementById("symbol-note");
   const name = document.getElementById("symbol-name").value.trim().replace(/\s+/g, " ");
-  if (!name || !symbolStrokes.length) {
+  if (!name || (!symbolStrokes.length && !symbolImage)) {
     note.textContent = ui("symbol-empty");
     return;
   }
@@ -4587,7 +5502,9 @@ function saveCustomSymbol(event) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name,
+      extent: symbolExtent,
       strokes: symbolStrokes,
+      ...(symbolImage ? { image: symbolImage } : {}),
       ports: padPorts.map((port) => ({ x: port.x, y: port.y, dir: port.dir })),
     }),
   })
@@ -4610,6 +5527,125 @@ function saveCustomSymbol(event) {
 
 document.getElementById("symbol-zoom-in").addEventListener("click", () => zoomSymbol(1.25));
 document.getElementById("symbol-zoom-out").addEventListener("click", () => zoomSymbol(1 / 1.25));
+function syncSymbolImageButton() {
+  const clear = document.getElementById("symbol-image-clear");
+  if (clear) clear.hidden = !symbolImage;
+}
+
+function fitSymbolImage(pixelW, pixelH) {
+  const aspect = pixelW / pixelH;
+  const w = aspect >= 1 ? symbolExtent : symbolExtent * aspect;
+  const h = aspect >= 1 ? symbolExtent / aspect : symbolExtent;
+  return {
+    x: Math.round(((symbolExtent - w) / 2) * 100) / 100,
+    y: Math.round(((symbolExtent - h) / 2) * 100) / 100,
+    w: Math.round(w * 100) / 100,
+    h: Math.round(h * 100) / 100,
+  };
+}
+
+function symbolImageHref(canvas) {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  let transparent = false;
+  for (let index = 3; index < pixels.length; index += 16) {
+    if (pixels[index] < 250) {
+      transparent = true;
+      break;
+    }
+  }
+  if (transparent) {
+    const png = canvas.toDataURL("image/png");
+    if (png.length <= 90000) return png;
+    context.globalCompositeOperation = "destination-over";
+    context.fillStyle = "#fffcf7";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  let quality = 0.82;
+  let href = canvas.toDataURL("image/jpeg", quality);
+  while (href.length > 90000 && quality > 0.42) {
+    quality -= 0.1;
+    href = canvas.toDataURL("image/jpeg", quality);
+  }
+  return href.length <= 90000 ? href : "";
+}
+
+function readSymbolImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const longest = Math.max(image.width, image.height);
+      const scale = longest > 256 ? 256 / longest : 1;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const href = symbolImageHref(canvas);
+      if (!href) {
+        reject(new Error("large"));
+        return;
+      }
+      resolve({ href, ...fitSymbolImage(canvas.width, canvas.height) });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("decode"));
+    };
+    image.src = url;
+  });
+}
+
+function chooseSymbolImage(file) {
+  const note = document.getElementById("symbol-note");
+  readSymbolImage(file)
+    .then((image) => {
+      const before = symbolSnapshot();
+      symbolImage = image;
+      if (note) note.textContent = "";
+      pushSymbolHistory(before);
+      renderSymbolPad();
+    })
+    .catch(() => {
+      if (note) note.textContent = ui("symbol-image-failed");
+    });
+}
+
+function clearSymbolImage() {
+  if (!symbolImage) return;
+  const before = symbolSnapshot();
+  symbolImage = null;
+  const file = document.getElementById("symbol-image-file");
+  if (file) file.value = "";
+  pushSymbolHistory(before);
+  renderSymbolPad();
+}
+
+document.getElementById("symbol-image").addEventListener("click", () => {
+  document.getElementById("symbol-image-file").click();
+});
+document.getElementById("symbol-image-clear").addEventListener("click", clearSymbolImage);
+document.getElementById("symbol-image-file").addEventListener("change", (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (file) chooseSymbolImage(file);
+});
+document.getElementById("symbol-undo").addEventListener("click", undoSymbol);
+document.getElementById("symbol-redo").addEventListener("click", redoSymbol);
+document.getElementById("symbol-fill").addEventListener("click", toggleSymbolFill);
+document.getElementById("symbol-thick").addEventListener("click", toggleSymbolThick);
+document.getElementById("symbol-text-smaller").addEventListener("mousedown", (event) => event.preventDefault());
+document.getElementById("symbol-text-larger").addEventListener("mousedown", (event) => event.preventDefault());
+document.getElementById("symbol-text-smaller").addEventListener("click", () => changeSymbolTextSize(-1));
+document.getElementById("symbol-text-larger").addEventListener("click", () => changeSymbolTextSize(1));
+document.getElementById("symbol-dialog").addEventListener("cancel", (event) => {
+  if (!symbolChain) return;
+  event.preventDefault();
+  symbolChain = null;
+  renderSymbolPad();
+});
 document.getElementById("symbol-snap").addEventListener("click", () => {
   symbolSnap = !symbolSnap;
   document.getElementById("symbol-snap").setAttribute("aria-pressed", symbolSnap ? "true" : "false");
@@ -4632,8 +5668,11 @@ symbolTextField.addEventListener("keydown", (event) => {
     commitSymbolText();
   }
 });
+symbolTextField.addEventListener("input", () => {
+  if (symbolTextEdit) renderSymbolPad();
+});
 symbolTextField.addEventListener("blur", () => commitSymbolText());
-for (const name of ["line", "rect", "ellipse", "text", "point"]) {
+for (const name of ["select", "line", "rect", "ellipse", "circle", "polyline", "dot", "text", "point"]) {
   document.getElementById(`symbol-${name}`).addEventListener("click", () => setSymbolTool(name));
 }
 const symbolPad = document.getElementById("symbol-pad");
@@ -4644,7 +5683,7 @@ symbolPad.addEventListener("pointercancel", onSymbolPointerUp);
 symbolPad.addEventListener("contextmenu", (event) => event.preventDefault());
 symbolPad.addEventListener("wheel", (event) => {
   event.preventDefault();
-  zoomSymbol(event.deltaY < 0 ? 1.25 : 1 / 1.25, symbolRawPoint(event));
+  zoomSymbol(event.deltaY < 0 ? 1.25 : 1 / 1.25, symbolViewPoint(event));
 }, { passive: false });
 
 buildMasters();

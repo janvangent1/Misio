@@ -445,7 +445,9 @@ button[aria-pressed="true"] {
 }
 
 .symbol-dialog {
-  width: min(440px, calc(100% - 32px));
+  width: min(560px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
@@ -479,11 +481,18 @@ button[aria-pressed="true"] {
   padding: 7px 8px;
 }
 
-.symbol-tools {
+.symbol-tools,
+.symbol-view {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 12px;
+}
+
+.symbol-tools button,
+.symbol-view button {
+  padding: 5px 8px;
+  font-size: 13px;
 }
 
 .symbol-tools button[aria-pressed="true"],
@@ -493,27 +502,33 @@ button[aria-pressed="true"] {
 }
 
 .symbol-view {
+  align-items: center;
+  margin-top: 8px;
+}
+
+.symbol-text-row {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-top: 8px;
 }
 
+.symbol-text-row[hidden] {
+  display: none;
+}
+
+.symbol-text-row input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
 #symbol-zoom {
-  min-width: 3.2rem;
+  min-width: 3.6rem;
   text-align: center;
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-}
-
-.symbol-text-input {
-  position: absolute;
-  z-index: 3;
-  width: 9rem;
-  margin: 0;
-  transform: translate(-50%, -50%);
-  text-align: center;
 }
 
 #symbol-pad {

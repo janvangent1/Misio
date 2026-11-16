@@ -122,18 +122,28 @@ Drag a shape from the list onto the page. Positions snap to a 20-pixel grid.
                         Double-click the name to rename it. Select a lane
                         and use Color to give that lane its own color.
                         Steps inside the lane move with it.
-    New symbol          under the shape list. Draw lines, rectangles,
-                        and ellipses, and place Text on the symbol.
-                        Point sets where a wire attaches: drag it,
-                        click it to change the side the wire leaves,
-                        and Shift-click removes it. The wheel zooms
-                        the pad, and the right mouse button moves
-                        the view. Snap joins a stroke to a nearby
-                        line, rectangle, or ellipse. Save puts it in
-                        the Custom group for everyone on that server.
+    New symbol          under the shape list. Draw with line,
+                        rectangle, ellipse, circle, polyline, or dot.
+                        Fill and Thick style a shape. Text is typed
+                        on the pad. Connector sets where a wire
+                        attaches: drag it, click it to change the
+                        side the wire leaves, and Shift-click removes
+                        it. Image places a picture behind that symbol.
+                        The wheel zooms the pad, and zooming out past
+                        the whole symbol makes the icon larger, up to
+                        four times. The right mouse button moves the
+                        view. Snap joins a stroke to the grid or to a
+                        nearby stroke. Undo and Redo are on the pad.
+                        Save puts it in the Custom group for everyone
+                        on that server.
     Legend              add a key of every symbol used on the page,
                         in the bottom right corner. Click it again
                         to refresh the key.
+    Background          place a picture behind the whole diagram.
+                        Drag it to move it, drag a corner to stretch
+                        it, and Rotate turns it. Arrow keys nudge it,
+                        and Delete removes it. Choosing another
+                        picture keeps the size and place already set.
     Language            English, Nederlands, or Français. Buttons,
                         messages, shape names, and the legend follow
                         the choice. Text you type on a shape stays as
@@ -227,7 +237,10 @@ A saved diagram is JSON:
             90, 180, or 270. A swimlane may also
             set axis to "row" or "column", and color to "#rrggbb".
             A custom symbol also keeps its own copy: name,
-            strokes (line, rectangle, ellipse, or text), and
-            connection points.
+            extent, strokes (line, rectangle, ellipse, polyline,
+            or text), an optional picture, and connection points.
     connectors: id, fromId, fromPort, toId, toPort, text, ends.
                 A connector may also set color to "#rrggbb".
+    background: an optional picture behind the page, with
+                x, y, w, h, and optionally rotation 90, 180,
+                or 270.
